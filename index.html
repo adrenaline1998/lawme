@@ -854,7 +854,7 @@ function viewDashboard(){
   return `
   <div class="topbar">
     <div>
-      <div class="greet-row"><h2>${greeting()}، أستاذ محمد</h2></div>
+      <div class="greet-row"><h2>${greeting()}${db.settings.displayName?'، '+esc(db.settings.displayName):''}</h2></div>
       <div class="sub">نظرة سريعة على أعمال المكتب اليوم — <span class="live-clock" id="liveClock"></span></div>
     </div>
     <div class="topbar-actions">
@@ -1554,6 +1554,7 @@ function viewAI(){
   `;
 }
 function saveApiKey(){ db.settings.apiKey = document.getElementById('apiKeyInput').value.trim(); saveDB(); toast('تم حفظ المفتاح مع حسابك'); }
+function saveDisplayName(){ db.settings.displayName = document.getElementById('displayNameInput').value.trim(); saveDB(); toast('تم حفظ الاسم'); render(); }
 function fillPrompt(text){ document.getElementById('aiInput').value = text; document.getElementById('aiInput').focus(); }
 function renderChatLog(){
   const log = document.getElementById('chatLog');
@@ -1602,6 +1603,14 @@ async function sendAI(){
 function viewSettings(){
   return `
   <div class="topbar"><div><h2>الإعدادات والنسخ الاحتياطي</h2><div class="sub">بياناتك محفوظة في قاعدة بيانات سحابية مرتبطة بحسابك</div></div></div>
+  <div class="panel">
+    <h3><span class="titlewrap">${ic('idcard')}الملف الشخصي</span></h3>
+    <p style="font-size:13px; color:var(--text-dim); margin-bottom:12px;">الاسم المستخدم في الترحيب بك عند فتح لوحة التحكم.</p>
+    <div class="field-row" style="align-items:end;">
+      <div class="field" style="margin-bottom:0;"><label>الاسم</label><input id="displayNameInput" value="${esc(db.settings.displayName||'')}"></div>
+      <button class="btn btn-ghost" onclick="saveDisplayName()">${ic('edit')}حفظ الاسم</button>
+    </div>
+  </div>
   <div class="panel">
     <h3><span class="titlewrap">${ic('idcard')}الأمان</span></h3>
     <p style="font-size:13px; color:var(--text-dim); margin-bottom:12px;">حسابك محمي باسم مستخدم وكلمة مرور تُطلبان عند كل دخول جديد، وتُستخدمان معًا كمفتاح للوصول إلى بياناتك السحابية.</p>
@@ -1814,6 +1823,7 @@ function renderAuthSignup(){
   showAuthScreen(`
     <h2>إنشاء حساب جديد</h2>
     <p class="sub">اختر اسم مستخدم وكلمة مرور لحسابك. بياناتك ستُحفظ مرتبطة بهما معًا — احتفظ بهما جيدًا، فلا يمكن استرجاع البيانات بدونهما.</p>
+    <div class="field"><label>الاسم</label><input id="suName" placeholder="يُستخدم في الترحيب بك داخل النظام"></div>
     <div class="field"><label>اسم المستخدم</label><input id="suUser"></div>
     <div class="field"><label>كلمة المرور</label><input type="password" id="suPw1"></div>
     <div class="field"><label>تأكيد كلمة المرور</label><input type="password" id="suPw2" onkeydown="if(event.key==='Enter') attemptSignup()"></div>
@@ -1848,11 +1858,13 @@ async function attemptLogin(){
   }
 }
 async function attemptSignup(){
+  const name = document.getElementById('suName').value.trim();
   const u = document.getElementById('suUser').value.trim();
   const p1 = document.getElementById('suPw1').value;
   const p2 = document.getElementById('suPw2').value;
   const err = document.getElementById('suErr');
   err.style.display = 'none';
+  if(name.length<2){ err.textContent='الرجاء إدخال الاسم'; err.style.display='block'; return; }
   if(u.length<2){ err.textContent='اسم المستخدم قصير جدًا'; err.style.display='block'; return; }
   if(p1.length<4){ err.textContent='كلمة المرور يجب أن تكون 4 أحرف على الأقل'; err.style.display='block'; return; }
   if(p1!==p2){ err.textContent='كلمتا المرور غير متطابقتين'; err.style.display='block'; return; }
@@ -1862,6 +1874,7 @@ async function attemptSignup(){
     const existing = await accountDocById(id).get();
     if(existing.exists){ err.textContent='يوجد حساب بهذه البيانات مسبقًا — جرّب الدخول بدلًا من ذلك.'; err.style.display='block'; return; }
     db = emptyDB();
+    db.settings.displayName = name;
     currentAccountId = id;
     currentUsername = u;
     await accountDocById(id).set({username:u, data:db});
