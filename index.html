@@ -17,8 +17,6 @@
      إعدادات قاعدة البيانات السحابية (Firebase) — عدّل هذا القسم فقط
      الخطوات موضّحة في الرسالة المرافقة لهذا الملف.
      ============================================================ -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyA54dkX3hZjC17IGuSH9hk2T0tNoBDuaLQ",
@@ -537,6 +535,10 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
 
 <div class="overlay" id="overlay"><div class="modal" id="modalBody"></div></div>
 <div class="toast" id="toast"></div>
+
+<!-- مكتبة قاعدة البيانات السحابية — تُحمَّل هنا بعد رسم الصفحة حتى لا تعطّل الظهور -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
 <script>
 /* ============ ICONS ============ */
@@ -1760,6 +1762,14 @@ function checkAuth(){
     showAuthScreen(`
       <h2>الإعداد غير مكتمل</h2>
       <p class="sub" style="color:var(--danger-light);">لم يتم إدخال بيانات قاعدة البيانات السحابية (Firebase) بعد. افتح الملف وعدّل قسم "FIREBASE_CONFIG" في أعلى الصفحة بالبيانات الخاصة بمشروعك، ثم أعد فتح الملف.</p>
+    `);
+    return;
+  }
+  if(typeof firebase === 'undefined'){
+    showAuthScreen(`
+      <h2>تعذّر تحميل مكتبة قاعدة البيانات</h2>
+      <p class="sub" style="color:var(--danger-light);">لم تتمكن الصفحة من تحميل مكتبة Firebase من الإنترنت. تحقق من اتصال الإنترنت، أو أن الشبكة/الجدار الناري لديك لا يحجب موقع gstatic.com، ثم أعد تحميل الصفحة.</p>
+      <button class="btn btn-gold btn-block" onclick="location.reload()">إعادة المحاولة</button>
     `);
     return;
   }
