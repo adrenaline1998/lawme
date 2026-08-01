@@ -1582,7 +1582,7 @@ async function sendAI(){
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'x-api-key': apiKey, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6', max_tokens: 1000,
+        model: 'claude-sonnet-5', max_tokens: 1000,
         system: 'أنت مساعد معلوماتي عام لمحامٍ سعودي فردي داخل تطبيق إدارة قضايا. أجب بالعربية الفصحى بإيجاز ووضوح، مع الإشارة إلى الأنظمة السعودية ذات الصلة إن أمكن. لا تقدّم إجاباتك كاستشارة قانونية نهائية أو حكم قطعي في واقعة بعينها، بل كخلفية عامة يجب على المحامي التحقق منها من المصادر الرسمية.',
         messages: chatHistory.filter(m=>m.role==='user'||m.role==='ai').map(m=>({role:m.role==='ai'?'assistant':'user', content:m.text}))
       })
@@ -1594,7 +1594,7 @@ async function sendAI(){
     chatHistory.push({role:'ai', text});
   }catch(err){
     document.getElementById(typingId)?.remove();
-    chatHistory.push({role:'err', text:'تعذّر الاتصال بواجهة الذكاء الاصطناعي مباشرة من المتصفح (قد يكون بسبب قيود CORS أو صلاحية المفتاح). كبديل موثوق ومجاني، افتح claude.ai في نافذة أخرى واطرح سؤالك هناك.'});
+    chatHistory.push({role:'err', text:'تعذّر إتمام الطلب: '+(err&&err.message?err.message:'خطأ غير معروف')+'. تأكد من صحة مفتاح API ورصيده، أو استخدم claude.ai مباشرة كبديل مجاني وموثوق.'});
   }
   renderChatLog();
 }
