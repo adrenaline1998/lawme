@@ -515,7 +515,7 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
     <div class="sidebar-foot">
       <b>محامٍ مرخّص</b> — وزارة العدل رقم 47/1439<br>
       +966570166331 · maqrilaw.com<br>
-      البيانات مرتبطة بحسابك (كلمة المرور) في قاعدة بيانات سحابية.
+      البيانات مرتبطة بحساب (اسم المستخدم وكلمة المرور) في قاعدة بيانات سحابية.
     </div>
   </aside>
 
@@ -599,11 +599,12 @@ function normalizeDB(d){
   return d;
 }
 let currentAccountId = null;
+let currentUsername = null;
 let db = emptyDB();
 function accountDoc(){ return fbDb.collection('accounts').doc(currentAccountId); }
 function saveDB(){
   if(!currentAccountId || !fbDb) return;
-  accountDoc().set(db).catch(()=>{
+  accountDoc().set({username:currentUsername, data:db}, {merge:true}).catch(()=>{
     toast('تعذّر حفظ البيانات في قاعدة البيانات السحابية — تحقّق من اتصال الإنترنت.');
   });
 }
@@ -1603,7 +1604,7 @@ function viewSettings(){
   <div class="topbar"><div><h2>الإعدادات والنسخ الاحتياطي</h2><div class="sub">بياناتك محفوظة في قاعدة بيانات سحابية مرتبطة بحسابك</div></div></div>
   <div class="panel">
     <h3><span class="titlewrap">${ic('idcard')}الأمان</span></h3>
-    <p style="font-size:13px; color:var(--text-dim); margin-bottom:12px;">حسابك محمي بكلمة مرور تُطلب عند كل دخول جديد، وتُستخدم كمفتاح للوصول إلى بياناتك السحابية.</p>
+    <p style="font-size:13px; color:var(--text-dim); margin-bottom:12px;">حسابك محمي باسم مستخدم وكلمة مرور تُطلبان عند كل دخول جديد، وتُستخدمان معًا كمفتاح للوصول إلى بياناتك السحابية.</p>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <button class="btn btn-ghost" onclick="openChangePasswordForm()">${ic('edit')}تغيير كلمة المرور</button>
       <button class="btn btn-ghost" onclick="lockNow()">${ic('idcard')}قفل التطبيق الآن</button>
@@ -1777,7 +1778,7 @@ function checkAuth(){
   const saved = sessionStorage.getItem('maqri_account');
   if(saved){
     accountDocById(saved).get().then(doc=>{
-      if(doc.exists){ db = normalizeDB(doc.data()); currentAccountId = saved; showApp(); }
+      if(doc.exists){ db = normalizeDB(doc.data().data); currentAccountId = saved; currentUsername = doc.data().username||''; showApp(); }
       else{ sessionStorage.removeItem('maqri_account'); renderAuthLogin(); }
     }).catch(()=>{ renderAuthLogin(); });
   } else {
@@ -1788,6 +1789,10 @@ function isFirebaseConfigured(){
   return FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.includes('ضع_');
 }
 function accountDocById(id){ return fbDb.collection('accounts').doc(id); }
+/* معرّف الحساب مشتق من اسم المستخدم وكلمة المرور معًا، حتى لا يمكن معرفة وجود حساب أو الوصول إليه دون الاثنين معًا */
+async function computeAccountId(username, password){
+  return sha256((username||'').trim().toLowerCase()+'::'+password);
+}
 function showApp(){
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('authScreen').innerHTML = '';
@@ -1797,62 +1802,81 @@ function showApp(){
 function renderAuthLogin(){
   showAuthScreen(`
     <h2>الدخول إلى النظام</h2>
-    <p class="sub">مكتب المحامي محمد مقري — أدخل كلمة مرور حسابك. إذا كانت كلمة مرور جديدة، سيُعرض عليك إنشاء حساب جديد بها.</p>
+    <p class="sub">مكتب المحامي محمد مقري — أدخل اسم المستخدم وكلمة المرور الخاصين بحسابك.</p>
+    <div class="field"><label>اسم المستخدم</label><input id="authUser" onkeydown="if(event.key==='Enter') document.getElementById('authPwInput').focus()"></div>
     <div class="field"><label>كلمة المرور</label><input type="password" id="authPwInput" onkeydown="if(event.key==='Enter') attemptLogin()"></div>
     <div class="auth-err" id="authErr"></div>
     <button class="btn btn-gold btn-block" onclick="attemptLogin()">دخول</button>
-    <p style="font-size:11px; color:var(--text-faint); margin-top:14px; line-height:1.8;">بياناتك محفوظة في قاعدة بيانات سحابية مرتبطة بكلمة المرور هذه فقط — احتفظ بها جيدًا، فلا يمكن استرجاع البيانات بدونها.</p>
+    <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="renderAuthSignup()">إنشاء حساب جديد</button>
+  `);
+}
+function renderAuthSignup(){
+  showAuthScreen(`
+    <h2>إنشاء حساب جديد</h2>
+    <p class="sub">اختر اسم مستخدم وكلمة مرور لحسابك. بياناتك ستُحفظ مرتبطة بهما معًا — احتفظ بهما جيدًا، فلا يمكن استرجاع البيانات بدونهما.</p>
+    <div class="field"><label>اسم المستخدم</label><input id="suUser"></div>
+    <div class="field"><label>كلمة المرور</label><input type="password" id="suPw1"></div>
+    <div class="field"><label>تأكيد كلمة المرور</label><input type="password" id="suPw2" onkeydown="if(event.key==='Enter') attemptSignup()"></div>
+    <div class="auth-err" id="suErr"></div>
+    <button class="btn btn-gold btn-block" onclick="attemptSignup()">إنشاء الحساب</button>
+    <button class="btn btn-ghost btn-block" style="margin-top:8px;" onclick="renderAuthLogin()">لديك حساب بالفعل؟ الدخول</button>
   `);
 }
 async function attemptLogin(){
+  const u = document.getElementById('authUser').value.trim();
   const p = document.getElementById('authPwInput').value;
   const err = document.getElementById('authErr');
   err.style.display = 'none';
-  if(!p){ err.textContent='الرجاء إدخال كلمة المرور'; err.style.display='block'; return; }
+  if(!u || !p){ err.textContent='الرجاء إدخال اسم المستخدم وكلمة المرور'; err.style.display='block'; return; }
   if(!fbDb){ err.textContent='تعذّر الاتصال بقاعدة البيانات — تحقق من إعداد Firebase في الملف.'; err.style.display='block'; return; }
-  const hash = await sha256(p);
+  const id = await computeAccountId(u, p);
   try{
-    const doc = await accountDocById(hash).get();
+    const doc = await accountDocById(id).get();
     if(doc.exists){
-      db = normalizeDB(doc.data());
-      currentAccountId = hash;
-      sessionStorage.setItem('maqri_account', hash);
+      db = normalizeDB(doc.data().data);
+      currentAccountId = id;
+      currentUsername = u;
+      sessionStorage.setItem('maqri_account', id);
       showApp();
     } else {
-      offerCreateAccount(hash);
+      err.textContent = 'اسم المستخدم أو كلمة المرور غير صحيحة، أو لا يوجد حساب بهذه البيانات بعد.';
+      err.style.display = 'block';
     }
   }catch(e){
     err.textContent = 'تعذّر الاتصال بقاعدة البيانات. تحقق من اتصال الإنترنت.';
     err.style.display = 'block';
   }
 }
-function offerCreateAccount(hash){
-  openModal(`
-    <h3>لا يوجد حساب بهذه الكلمة</h3>
-    <p style="font-size:14px; color:var(--text-dim); line-height:1.9; margin-bottom:10px;">لا يوجد حساب مسجَّل بهذه كلمة المرور. هل تريد إنشاء حساب جديد فارغ بها؟ تذكّرها جيدًا — فهي المفتاح الوحيد للوصول إلى بيانات هذا الحساب لاحقًا ولا يمكن استرجاعها إن نُسيت.</p>
-    <div class="modal-actions">
-      <button class="btn btn-gold btn-block" onclick="createAccountWithHash('${hash}')">إنشاء حساب جديد</button>
-      <button class="btn btn-ghost" onclick="closeModal()">إلغاء</button>
-    </div>
-  `);
-}
-async function createAccountWithHash(hash){
-  db = emptyDB();
-  currentAccountId = hash;
+async function attemptSignup(){
+  const u = document.getElementById('suUser').value.trim();
+  const p1 = document.getElementById('suPw1').value;
+  const p2 = document.getElementById('suPw2').value;
+  const err = document.getElementById('suErr');
+  err.style.display = 'none';
+  if(u.length<2){ err.textContent='اسم المستخدم قصير جدًا'; err.style.display='block'; return; }
+  if(p1.length<4){ err.textContent='كلمة المرور يجب أن تكون 4 أحرف على الأقل'; err.style.display='block'; return; }
+  if(p1!==p2){ err.textContent='كلمتا المرور غير متطابقتين'; err.style.display='block'; return; }
+  if(!fbDb){ err.textContent='تعذّر الاتصال بقاعدة البيانات — تحقق من إعداد Firebase في الملف.'; err.style.display='block'; return; }
+  const id = await computeAccountId(u, p1);
   try{
-    await accountDocById(hash).set(db);
-    sessionStorage.setItem('maqri_account', hash);
-    closeModal();
+    const existing = await accountDocById(id).get();
+    if(existing.exists){ err.textContent='يوجد حساب بهذه البيانات مسبقًا — جرّب الدخول بدلًا من ذلك.'; err.style.display='block'; return; }
+    db = emptyDB();
+    currentAccountId = id;
+    currentUsername = u;
+    await accountDocById(id).set({username:u, data:db});
+    sessionStorage.setItem('maqri_account', id);
     showApp();
   }catch(e){
-    toast('تعذّر إنشاء الحساب — تحقق من الاتصال بالإنترنت.');
-    currentAccountId = null;
+    err.textContent = 'تعذّر إنشاء الحساب — تحقق من الاتصال بالإنترنت.';
+    err.style.display = 'block';
   }
 }
 function openChangePasswordForm(){
   openModal(`
     <h3>تغيير كلمة المرور</h3>
-    <p style="font-size:12.5px; color:var(--text-dim); margin-bottom:12px; line-height:1.8;">سيتم نقل جميع بياناتك إلى الحساب المرتبط بكلمة المرور الجديدة.</p>
+    <p style="font-size:12.5px; color:var(--text-dim); margin-bottom:12px; line-height:1.8;">سيتم نقل جميع بياناتك إلى بيانات الدخول الجديدة.</p>
+    <div class="field"><label>اسم المستخدم</label><input id="cp_user" value="${esc(currentUsername||'')}"></div>
     <div class="field"><label>كلمة المرور الحالية</label><input type="password" id="cp_old"></div>
     <div class="field"><label>كلمة المرور الجديدة</label><input type="password" id="cp_new1"></div>
     <div class="field"><label>تأكيد كلمة المرور الجديدة</label><input type="password" id="cp_new2"></div>
@@ -1864,20 +1888,22 @@ function openChangePasswordForm(){
   `);
 }
 async function submitChangePassword(){
+  const u = document.getElementById('cp_user').value.trim();
   const oldPw = document.getElementById('cp_old').value;
   const n1 = document.getElementById('cp_new1').value;
   const n2 = document.getElementById('cp_new2').value;
   const err = document.getElementById('cp_err');
   err.style.display = 'none';
-  if((await sha256(oldPw)) !== currentAccountId){ err.textContent='كلمة المرور الحالية غير صحيحة'; err.style.display='block'; return; }
+  const oldId = await computeAccountId(u, oldPw);
+  if(oldId !== currentAccountId){ err.textContent='اسم المستخدم أو كلمة المرور الحالية غير صحيحة'; err.style.display='block'; return; }
   if(n1.length<4){ err.textContent='كلمة المرور الجديدة قصيرة جدًا'; err.style.display='block'; return; }
   if(n1!==n2){ err.textContent='كلمتا المرور الجديدتان غير متطابقتين'; err.style.display='block'; return; }
-  const newHash = await sha256(n1);
+  const newId = await computeAccountId(u, n1);
   try{
-    await accountDocById(newHash).set(db);
+    await accountDocById(newId).set({username:u, data:db});
     await accountDocById(currentAccountId).delete();
-    currentAccountId = newHash;
-    sessionStorage.setItem('maqri_account', newHash);
+    currentAccountId = newId;
+    sessionStorage.setItem('maqri_account', newId);
     toast('تم تغيير كلمة المرور'); closeModal();
   }catch(e){ toast('تعذّر تغيير كلمة المرور — تحقق من الاتصال بالإنترنت.'); }
 }
