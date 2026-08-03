@@ -393,8 +393,8 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
 .cal-toggle{display:flex; gap:4px; background:var(--surface2); border:1px solid var(--line); border-radius:7px; padding:2px;}
 .cal-btn{background:transparent; border:none; color:var(--text-faint); font-size:11px; padding:4px 9px; border-radius:5px; font-weight:600;}
 .cal-btn.active{background:var(--gold-dim); color:var(--gold-light);}
-.hijri-row{display:flex; gap:8px;}
-.hijri-row input{flex:1; min-width:0;}
+.date-row{display:flex; gap:8px;}
+.date-row select, .date-row input{flex:1; min-width:0;}
 
 /* ---------- modal ---------- */
 .overlay{position:fixed; inset:0; background:rgba(4,8,17,.75); backdrop-filter:blur(2px); display:none; align-items:flex-start; justify-content:center; padding:5vh 16px; z-index:600; overflow-y:auto;}
@@ -418,22 +418,6 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
 .disclaimer{border:1px dashed var(--danger); background:var(--danger-dim); border-radius:9px; padding:12px 15px; font-size:12.5px; color:var(--danger-light); margin-top:16px; line-height:1.9; display:flex; gap:10px; align-items:flex-start;}
 .disclaimer svg{width:16px; height:16px; flex-shrink:0; margin-top:2px;}
 
-/* ---------- AI ---------- */
-.ai-wrap{display:grid; grid-template-columns:1.3fr .9fr; gap:18px; align-items:start;}
-.chat-log{display:flex; flex-direction:column; gap:12px; max-height:420px; overflow-y:auto; margin-bottom:14px; padding-inline-end:4px;}
-.msg{padding:11px 14px; border-radius:10px; font-size:13.5px; line-height:1.85; max-width:92%;}
-.msg.user{background:var(--surface3); align-self:flex-end; border:1px solid var(--line);}
-.msg.ai{background:var(--gold-dim); border:1px solid rgba(184,145,76,.28); align-self:flex-start; white-space:pre-wrap;}
-.msg.err{background:var(--danger-dim); border:1px solid var(--danger); color:var(--danger-light); align-self:flex-start;}
-.chip-row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
-.chip{font-size:12px; padding:6px 12px; border-radius:20px; border:1px solid var(--line); color:var(--text-dim); background:var(--surface2);}
-.chip:hover{border-color:var(--gold); color:var(--gold-light);}
-.ask-row{display:flex; gap:8px;}
-.ask-row textarea{flex:1;}
-.typing{display:flex; gap:4px; padding:6px 0;}
-.typing span{width:6px; height:6px; border-radius:50%; background:var(--gold); animation:blink 1.2s infinite ease-in-out;}
-.typing span:nth-child(2){animation-delay:.2s;} .typing span:nth-child(3){animation-delay:.4s;}
-@keyframes blink{0%,80%,100%{opacity:.25;} 40%{opacity:1;}}
 
 /* ---------- client detail ---------- */
 .client-hero{display:flex; align-items:center; gap:16px; margin-bottom:20px; flex-wrap:wrap;}
@@ -459,7 +443,7 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
 /* ---------- responsive ---------- */
 @media(max-width:960px){
   .stat-grid{grid-template-columns:repeat(2,1fr);}
-  .ai-wrap, .two-col, .info-grid{grid-template-columns:1fr;}
+  .two-col, .info-grid{grid-template-columns:1fr;}
 }
 @media(max-width:760px){
   .sidebar{position:fixed; right:0; top:0; z-index:90; transform:translateX(100%); transition:.25s; width:80vw; max-width:290px; box-shadow:-10px 0 30px rgba(0,0,0,.4);}
@@ -483,8 +467,6 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
   .modal{padding:18px 16px; max-width:100%; border-radius:12px;}
   .modal-actions{flex-direction:column;}
   .modal-actions .btn{width:100%;}
-  .ask-row{flex-direction:column;}
-  .ask-row .btn{width:100%;}
   .icon-btn{width:36px; height:36px;}
   .task-check{width:24px; height:24px;}
   .row-item{flex-wrap:wrap; gap:8px;}
@@ -601,7 +583,7 @@ function initFirebase(){
     fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
   }catch(e){ console.error('Firebase init failed', e); }
 }
-function emptyDB(){ return {clients:[], cases:[], tasks:[], notes:[], agencies:[], visits:[], policeCases:[], settings:{apiKey:'', dismissedReminders:[]}}; }
+function emptyDB(){ return {clients:[], cases:[], tasks:[], notes:[], agencies:[], visits:[], policeCases:[], settings:{dismissedReminders:[]}}; }
 function normalizeDB(d){
   d = Object.assign(emptyDB(), d||{});
   d.clients.forEach(c=>{ c.files = c.files||[]; });
@@ -689,9 +671,14 @@ function gregorianISOToHijri(iso){
 }
 /* ---- reusable date field with Hijri/Gregorian toggle ---- */
 const HIJRI_MONTHS = ['محرم','صفر','ربيع الأول','ربيع الآخر','جمادى الأولى','جمادى الآخرة','رجب','شعبان','رمضان','شوال','ذو القعدة','ذو الحجة'];
+const GREGORIAN_MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 function dateFieldHtml(id, iso, label){
-  const dayOptions = Array.from({length:30},(_,i)=>i+1).map(d=>`<option value="${d}">${d}</option>`).join('');
-  const monthOptions = HIJRI_MONTHS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
+  let gd='', gm='', gy='';
+  if(iso){ const parts = iso.split('-'); gy=parseInt(parts[0]); gm=parseInt(parts[1]); gd=parseInt(parts[2]); }
+  const gDayOptions = Array.from({length:31},(_,i)=>i+1).map(d=>`<option value="${d}" ${d===gd?'selected':''}>${d}</option>`).join('');
+  const gMonthOptions = GREGORIAN_MONTHS.map((m,i)=>`<option value="${i+1}" ${(i+1)===gm?'selected':''}>${i+1} - ${m}</option>`).join('');
+  const hDayOptions = Array.from({length:30},(_,i)=>i+1).map(d=>`<option value="${d}">${d}</option>`).join('');
+  const hMonthOptions = HIJRI_MONTHS.map((m,i)=>`<option value="${i+1}">${i+1} - ${m}</option>`).join('');
   return `<div class="field">
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
       <label style="margin-bottom:0;">${label}</label>
@@ -700,11 +687,15 @@ function dateFieldHtml(id, iso, label){
         <button type="button" class="cal-btn" onclick="setDateMode('${id}','h')">هجري</button>
       </div>
     </div>
-    <input type="date" id="${id}_g" value="${iso||''}" style="margin-top:6px;">
-    <div id="${id}_h" class="hijri-row" style="display:none; margin-top:6px;">
-      <select id="${id}_hd"><option value="">يوم</option>${dayOptions}</select>
-      <select id="${id}_hm"><option value="">شهر</option>${monthOptions}</select>
-      <input type="number" id="${id}_hy" placeholder="سنة هـ" style="flex:1;">
+    <div id="${id}_g" class="date-row" style="margin-top:6px;">
+      <select id="${id}_gd"><option value="">يوم</option>${gDayOptions}</select>
+      <select id="${id}_gm"><option value="">شهر</option>${gMonthOptions}</select>
+      <input type="number" id="${id}_gy" placeholder="سنة" value="${gy||''}">
+    </div>
+    <div id="${id}_h" class="date-row" style="display:none; margin-top:6px;">
+      <select id="${id}_hd"><option value="">يوم</option>${hDayOptions}</select>
+      <select id="${id}_hm"><option value="">شهر</option>${hMonthOptions}</select>
+      <input type="number" id="${id}_hy" placeholder="سنة هـ">
     </div>
   </div>`;
 }
@@ -712,7 +703,7 @@ function setDateMode(id, mode){
   const toggle = document.getElementById(id+'_toggle');
   toggle.dataset.mode = mode;
   toggle.querySelectorAll('.cal-btn').forEach((b,i)=>b.classList.toggle('active', (i===0&&mode==='g')||(i===1&&mode==='h')));
-  document.getElementById(id+'_g').style.display = mode==='g' ? '' : 'none';
+  document.getElementById(id+'_g').style.display = mode==='g' ? 'flex' : 'none';
   document.getElementById(id+'_h').style.display = mode==='h' ? 'flex' : 'none';
 }
 function getDateValue(id){
@@ -725,7 +716,11 @@ function getDateValue(id){
     if(!hd||!hm||!hy) return '';
     try{ return hijriToGregorianISO(hy,hm,hd); }catch(e){ return ''; }
   }
-  return document.getElementById(id+'_g').value;
+  const gd = parseInt(document.getElementById(id+'_gd').value);
+  const gm = parseInt(document.getElementById(id+'_gm').value);
+  const gy = parseInt(document.getElementById(id+'_gy').value);
+  if(!gd||!gm||!gy) return '';
+  return gy+'-'+String(gm).padStart(2,'0')+'-'+String(gd).padStart(2,'0');
 }
 
 const CASE_TYPES = ['تجارية','جنائية','أحوال شخصية','عمالية','إدارية','عامة','تنفيذ','أخرى'];
@@ -747,7 +742,6 @@ const NAV = [
     {v:'police', l:'القضايا في النيابة والشرطة', i:'shield'},
   ]},
   {group:'مرجعي', items:[
-    {v:'ai', l:'المساعد الذكي', i:'spark'},
     {v:'resources', l:'الوصول السريع للأنظمة', i:'link'},
     {v:'legal', l:'معلومات قانونية', i:'book'},
     {v:'settings', l:'الإعدادات والنسخ الاحتياطي', i:'gear'},
@@ -892,7 +886,7 @@ function agencyAlertBanner(){
 function render(){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.view===currentView));
   const root = document.getElementById('viewRoot');
-  const views = {dashboard:viewDashboard, cases:viewCases, clients:viewClients, clientDetail:viewClientDetail, agencies:viewAgencies, tasks:viewTasks, notes:viewNotes, visits:viewVisits, police:viewPolice, ai:viewAI, resources:viewResources, legal:viewLegal, settings:viewSettings};
+  const views = {dashboard:viewDashboard, cases:viewCases, clients:viewClients, clientDetail:viewClientDetail, agencies:viewAgencies, tasks:viewTasks, notes:viewNotes, visits:viewVisits, police:viewPolice, resources:viewResources, legal:viewLegal, settings:viewSettings};
   root.innerHTML = views[currentView]();
   bindViewEvents();
 }
@@ -1541,7 +1535,7 @@ const RESOURCES = [
   {name:'وزارة التجارة', desc:'الأنظمة التجارية والسجل التجاري', url:'https://mc.gov.sa', ico:'briefcase'},
   {name:'مركز التحكيم التجاري السعودي', desc:'خدمات التحكيم والتسوية التجارية', url:'https://sccc.gov.sa', ico:'scale'},
   {name:'أبشر', desc:'التحقق من الهوية والخدمات الحكومية الموحدة', url:'https://www.absher.sa', ico:'idcard'},
-  {name:'الهيئة السعودية للمحامين', desc:'شؤون قيد وترخيص المحاماة', url:'https://saudibar.org.sa', ico:'scale'},
+  {name:'الهيئة السعودية للمحامين', desc:'شؤون قيد وترخيص المحاماة', url:'https://sba.gov.sa/', ico:'scale'},
 ];
 function viewResources(){
   return `
@@ -1577,91 +1571,6 @@ function viewLegal(){
   </div>
   <div class="disclaimer">${ic('alert')}<span>هذه المعلومات عامة ولأغراض مرجعية سريعة فقط، وقد تتغير الأنظمة واللوائح. ارجع دائمًا إلى النص النظامي الرسمي المحدَّث قبل الاعتماد على أي معلومة في عمل قانوني فعلي.</span></div>
   `;
-}
-
-/* ============ AI ASSISTANT ============ */
-let chatHistory = [];
-function viewAI(){
-  return `
-  <div class="topbar"><div><h2>المساعد الذكي</h2><div class="sub">دعم معلوماتي عام — ليس استشارة قانونية نهائية</div></div></div>
-  <div class="ai-wrap">
-    <div class="panel">
-      <h3><span class="titlewrap">${ic('spark')}محادثة</span></h3>
-      <div class="chip-row">
-        <button class="chip" onclick="fillPrompt('لخّص لي أهم النقاط الإجرائية لرفع دعوى مطالبة مالية تجارية في المملكة.')">تلخيص إجراء</button>
-        <button class="chip" onclick="fillPrompt('اشرح لي الفرق بين محكمة الاستئناف والمحكمة العليا في النظام القضائي السعودي.')">شرح مصطلح</button>
-        <button class="chip" onclick="fillPrompt('ساعدني في صياغة مسودة أولية لخطاب إنذار قانوني لعميل متأخر عن السداد.')">صياغة أولية</button>
-      </div>
-      <div class="chat-log" id="chatLog"></div>
-      <div class="ask-row">
-        <textarea id="aiInput" rows="2" placeholder="اكتب سؤالك القانوني هنا..."></textarea>
-        <button class="btn btn-gold" onclick="sendAI()">إرسال</button>
-      </div>
-    </div>
-    <div class="panel">
-      <h3><span class="titlewrap">${ic('gear')}الإعداد</span></h3>
-      <div class="field">
-        <label>مفتاح Anthropic API (اختياري)</label>
-        <input type="password" id="apiKeyInput" value="${esc(db.settings.apiKey||'')}" placeholder="sk-ant-...">
-      </div>
-      <button class="btn btn-ghost btn-block" onclick="saveApiKey()">حفظ المفتاح مع حسابك</button>
-      <p style="font-size:11.5px; color:var(--text-faint); line-height:1.9; margin-top:12px;">
-        يُخزَّن المفتاح مع بيانات حسابك في قاعدة البيانات السحابية ولا يُرسل إلى أي خادم آخر سوى واجهة Anthropic مباشرة عند الاستخدام. يمكنك الحصول على مفتاح مجاني برصيد تجريبي من
-        <a href="https://console.anthropic.com" target="_blank" style="color:var(--gold-light);">console.anthropic.com</a>.
-        إن لم تُدخل مفتاحًا، يمكنك استخدام <a href="https://claude.ai" target="_blank" style="color:var(--gold-light);">claude.ai</a> مباشرة مجانًا.
-      </p>
-      <div class="disclaimer" style="margin-top:16px;">${ic('alert')}<span>إجابات المساعد الذكي معلومات عامة توليدية وقد تحتوي أخطاء، وليست استشارة قانونية معتمدة. تحقق دائمًا من المصادر النظامية الرسمية.</span></div>
-    </div>
-  </div>
-  `;
-}
-function saveApiKey(){ db.settings.apiKey = document.getElementById('apiKeyInput').value.trim(); saveDB(); toast('تم حفظ المفتاح مع حسابك'); }
-function saveDisplayName(){ db.settings.displayName = document.getElementById('displayNameInput').value.trim(); saveDB(); toast('تم حفظ الاسم'); render(); }
-function fillPrompt(text){ document.getElementById('aiInput').value = text; document.getElementById('aiInput').focus(); }
-function renderChatLog(){
-  const log = document.getElementById('chatLog');
-  if(!log) return;
-  log.innerHTML = chatHistory.map(m=>`<div class="msg ${m.role}">${esc(m.text)}</div>`).join('') || `<div class="empty" style="padding:16px;"><p>ابدأ المحادثة بسؤال قانوني عام، أو استخدم أحد الاقتراحات أعلاه.</p></div>`;
-  log.scrollTop = log.scrollHeight;
-}
-async function sendAI(){
-  const input = document.getElementById('aiInput');
-  const question = input.value.trim();
-  if(!question) return;
-  const apiKey = db.settings.apiKey;
-  chatHistory.push({role:'user', text:question});
-  input.value = ''; renderChatLog();
-  if(!apiKey){
-    chatHistory.push({role:'err', text:'لم يتم إدخال مفتاح API. أضف مفتاحك في قسم "الإعداد"، أو استخدم claude.ai مباشرة لطرح هذا السؤال مجانًا.'});
-    renderChatLog(); return;
-  }
-  const log = document.getElementById('chatLog');
-  const typingId = 'typing_'+uid();
-  log.insertAdjacentHTML('beforeend', `<div class="msg ai" id="${typingId}"><div class="typing"><span></span><span></span><span></span></div></div>`);
-  log.scrollTop = log.scrollHeight;
-  try{
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'x-api-key': apiKey, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-5', max_tokens: 1000,
-        system: 'أنت مساعد معلوماتي عام لمحامٍ سعودي فردي داخل تطبيق إدارة قضايا. أجب بالعربية الفصحى بإيجاز ووضوح، مع الإشارة إلى الأنظمة السعودية ذات الصلة إن أمكن. لا تقدّم إجاباتك كاستشارة قانونية نهائية أو حكم قطعي في واقعة بعينها، بل كخلفية عامة يجب على المحامي التحقق منها من المصادر الرسمية.',
-        messages: chatHistory.filter(m=>m.role==='user'||m.role==='ai').map(m=>({role:m.role==='ai'?'assistant':'user', content:m.text}))
-      })
-    });
-    document.getElementById(typingId)?.remove();
-    if(!res.ok){ const errText = await res.text().catch(()=> ''); throw new Error('HTTP '+res.status+' '+errText.slice(0,180)); }
-    const data = await res.json();
-    const text = (data.content||[]).map(b=>b.text||'').join('\\n').trim() || 'لم يصل رد نصي من النموذج.';
-    chatHistory.push({role:'ai', text});
-  }catch(err){
-    document.getElementById(typingId)?.remove();
-    const msg = err&&err.message?err.message:'خطأ غير معروف';
-    let hint = 'تحقق من صحة مفتاح API.';
-    if(msg.includes('credit') || msg.includes('balance')) hint = 'رصيد مفتاح API لديك منتهٍ — أضف رصيدًا من console.anthropic.com (Settings → Billing) وأعد المحاولة هنا مباشرة.';
-    chatHistory.push({role:'err', text:'تعذّر إتمام الطلب: '+msg+'. '+hint});
-  }
-  renderChatLog();
 }
 
 /* ============ SETTINGS / BACKUP ============ */
@@ -1735,7 +1644,7 @@ function importBackup(){
 }
 function wipeAll(){
   confirmDelete('سيتم حذف جميع البيانات (القضايا، العملاء، الوكالات، المهام، الملفات...) نهائيًا ولا يمكن التراجع عن هذا. هل أنت متأكد تمامًا؟', ()=>{
-    db = {clients:[], cases:[], tasks:[], notes:[], agencies:[], visits:[], policeCases:[], settings:{apiKey:''}};
+    db = {clients:[], cases:[], tasks:[], notes:[], agencies:[], visits:[], policeCases:[], settings:{}};
     saveDB(); closeModal(); toast('تم الحذف'); render();
   });
 }
@@ -1812,7 +1721,6 @@ function animateNumbers(){
   });
 }
 function bindViewEvents(){
-  if(currentView==='ai') renderChatLog();
   if(currentView==='dashboard'){ renderBell(); startClock(); }
   renderThemeBtn();
   animateNumbers();
