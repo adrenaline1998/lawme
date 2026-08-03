@@ -396,6 +396,7 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
 .cal-btn.active{background:var(--gold-dim); color:var(--gold-light);}
 .date-row{display:flex; gap:8px;}
 .date-row select, .date-row input{flex:1; min-width:0;}
+.day-preview{font-size:11.5px; color:var(--gold-light); margin-top:6px; font-weight:600; min-height:14px;}
 
 /* ---------- modal ---------- */
 .overlay{position:fixed; inset:0; background:rgba(4,8,17,.75); backdrop-filter:blur(2px); display:none; align-items:flex-start; justify-content:center; padding:5vh 16px; z-index:600; overflow-y:auto;}
@@ -584,7 +585,7 @@ function initFirebase(){
     fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
   }catch(e){ console.error('Firebase init failed', e); }
 }
-function emptyDB(){ return {clients:[], cases:[], tasks:[], notes:[], agencies:[], visits:[], policeCases:[], settings:{dismissedReminders:[]}}; }
+function emptyDB(){ return {clients:[], cases:[], tasks:[], notes:[], agencies:[], visits:[], policeCases:[], trash:[], settings:{dismissedReminders:[]}}; }
 function normalizeDB(d){
   d = Object.assign(emptyDB(), d||{});
   d.clients.forEach(c=>{ c.files = c.files||[]; });
@@ -606,6 +607,10 @@ function toast(msg){
   t.textContent = msg; t.classList.add('show');
   clearTimeout(window.__tst); window.__tst = setTimeout(()=>t.classList.remove('show'), 2400);
 }
+function dayNameAr(d){
+  if(!d) return '';
+  try{ return new Date(d+'T00:00:00').toLocaleDateString('ar-SA',{weekday:'long'}); }catch(e){ return ''; }
+}
 function fmtDate(d){
   if(!d) return '—';
   const dt = new Date(d+'T00:00:00');
@@ -621,7 +626,8 @@ function fmtHijriShort(iso){
 function fmtDateBoth(d){
   if(!d) return '—';
   const hijri = fmtHijriShort(d);
-  return fmtDate(d) + (hijri ? ' <span class="hijri-sub">('+hijri+')</span>' : '');
+  const day = dayNameAr(d);
+  return (day?day+' ':'')+fmtDate(d) + (hijri ? ' <span class="hijri-sub">('+hijri+')</span>' : '');
 }
 function fmtTime(t){
   if(!t) return '';
@@ -694,6 +700,7 @@ function dateFieldHtml(id, iso, label){
   const gMonthOptions = GREGORIAN_MONTHS.map((m,i)=>`<option value="${i+1}" ${(i+1)===gm?'selected':''}>${i+1} - ${m}</option>`).join('');
   const hDayOptions = Array.from({length:30},(_,i)=>i+1).map(d=>`<option value="${d}">${d}</option>`).join('');
   const hMonthOptions = HIJRI_MONTHS.map((m,i)=>`<option value="${i+1}">${i+1} - ${m}</option>`).join('');
+  const initialDayName = iso ? dayNameAr(iso) : '';
   return `<div class="field">
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
       <label style="margin-bottom:0;">${label}</label>
@@ -703,16 +710,23 @@ function dateFieldHtml(id, iso, label){
       </div>
     </div>
     <div id="${id}_g" class="date-row" style="margin-top:6px;">
-      <select id="${id}_gd"><option value="">يوم</option>${gDayOptions}</select>
-      <select id="${id}_gm"><option value="">شهر</option>${gMonthOptions}</select>
-      <input type="number" id="${id}_gy" placeholder="سنة" value="${gy||''}">
+      <select id="${id}_gd" onchange="updateDayPreview('${id}')"><option value="">يوم</option>${gDayOptions}</select>
+      <select id="${id}_gm" onchange="updateDayPreview('${id}')"><option value="">شهر</option>${gMonthOptions}</select>
+      <input type="number" id="${id}_gy" placeholder="سنة" value="${gy||''}" onchange="updateDayPreview('${id}')">
     </div>
     <div id="${id}_h" class="date-row" style="display:none; margin-top:6px;">
-      <select id="${id}_hd"><option value="">يوم</option>${hDayOptions}</select>
-      <select id="${id}_hm"><option value="">شهر</option>${hMonthOptions}</select>
-      <input type="number" id="${id}_hy" placeholder="سنة هـ">
+      <select id="${id}_hd" onchange="updateDayPreview('${id}')"><option value="">يوم</option>${hDayOptions}</select>
+      <select id="${id}_hm" onchange="updateDayPreview('${id}')"><option value="">شهر</option>${hMonthOptions}</select>
+      <input type="number" id="${id}_hy" placeholder="سنة هـ" onchange="updateDayPreview('${id}')">
     </div>
+    <div id="${id}_dayname" class="day-preview">${initialDayName}</div>
   </div>`;
+}
+function updateDayPreview(id){
+  const el = document.getElementById(id+'_dayname');
+  if(!el) return;
+  const iso = getDateValue(id);
+  el.textContent = iso ? dayNameAr(iso) : '';
 }
 function setDateMode(id, mode){
   const toggle = document.getElementById(id+'_toggle');
@@ -720,6 +734,7 @@ function setDateMode(id, mode){
   toggle.querySelectorAll('.cal-btn').forEach((b,i)=>b.classList.toggle('active', (i===0&&mode==='g')||(i===1&&mode==='h')));
   document.getElementById(id+'_g').style.display = mode==='g' ? 'flex' : 'none';
   document.getElementById(id+'_h').style.display = mode==='h' ? 'flex' : 'none';
+  updateDayPreview(id);
 }
 function getDateValue(id){
   const toggle = document.getElementById(id+'_toggle');
@@ -751,12 +766,12 @@ const NAV = [
     {v:'cases', l:'القضايا', i:'briefcase'},
     {v:'clients', l:'العملاء', i:'users'},
     {v:'agencies', l:'الوكالات', i:'scroll'},
-    {v:'tasks', l:'المهام والمواعيد', i:'check_sq'},
-    {v:'notes', l:'الملاحظات', i:'edit_note'},
+    {v:'tasks', l:'المهام والملاحظات', i:'check_sq'},
     {v:'visits', l:'المراجعات الميدانية', i:'pin'},
     {v:'police', l:'القضايا في النيابة والشرطة', i:'shield'},
   ]},
   {group:'مرجعي', items:[
+    {v:'trash', l:'سلة المحذوفات', i:'trash'},
     {v:'resources', l:'الوصول السريع للأنظمة', i:'link'},
     {v:'legal', l:'معلومات قانونية', i:'book'},
     {v:'settings', l:'الإعدادات والنسخ الاحتياطي', i:'gear'},
@@ -793,7 +808,7 @@ function goto(view, clientId){ currentView=view; currentClientId=clientId||null;
 /* ============ MODAL HELPERS ============ */
 function openModal(html){ document.getElementById('modalBody').innerHTML = html; document.getElementById('overlay').classList.add('open'); }
 function closeModal(){ document.getElementById('overlay').classList.remove('open'); }
-document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeModal(); });
+/* لا يُغلق أي مربع عند الضغط خارجه — يجب الضغط على أحد الأزرار داخل المربع صراحة */
 
 /* ---- generic delete-confirmation popup (used instead of native confirm()) ---- */
 let __pendingAction = null;
@@ -825,10 +840,155 @@ function getReminders(){
 function dotColor(days){ if(days<0) return 'var(--danger)'; if(days<=3) return 'var(--gold)'; return 'var(--ok)'; }
 function goToReminder(type, id){
   bellOpen = false;
-  if(type==='hearing'){ goto('cases'); setTimeout(()=>openCaseForm(id),0); }
-  else if(type==='task'){ goto('tasks'); setTimeout(()=>openTaskForm(id),0); }
-  else if(type==='agency'){ goto('agencies'); setTimeout(()=>openAgencyForm(id),0); }
-  else if(type==='visit'){ goto('visits'); setTimeout(()=>openVisitForm(id),0); }
+  renderBell();
+  showReminderPreview(type, id);
+}
+/* ============ TRASH (سلة المحذوفات — استعادة خلال 15 يومًا) ============ */
+const TRASH_RETENTION_DAYS = 15;
+function moveToTrash(type, data, extra){
+  db.trash = db.trash || [];
+  db.trash.push({ id:uid(), type, data, extra:extra||{}, deletedAt:new Date().toISOString() });
+}
+function daysLeftInTrash(deletedAt){
+  const deleted = new Date(deletedAt);
+  const now = new Date();
+  const daysPassed = Math.floor((now-deleted)/86400000);
+  return Math.max(0, TRASH_RETENTION_DAYS-daysPassed);
+}
+function purgeOldTrash(){
+  if(!db.trash || !db.trash.length) return;
+  const kept = db.trash.filter(item=>daysLeftInTrash(item.deletedAt) > 0);
+  const removed = db.trash.filter(item=>daysLeftInTrash(item.deletedAt) <= 0);
+  if(removed.length){
+    removed.forEach(item=>{
+      if(item.type==='clientFile') accountDoc().collection('files').doc(item.data.id).delete().catch(()=>{});
+    });
+    db.trash = kept;
+    saveDB();
+  }
+}
+function trashItemInfo(item){
+  const labels = {case:'قضية', client:'عميل', agency:'وكالة', task:'مهمة', note:'ملاحظة', visit:'مراجعة ميدانية', police:'قضية نيابة/شرطة', clientFile:'ملف عميل'};
+  let title = '—';
+  if(item.type==='case') title = item.data.title;
+  else if(item.type==='client') title = item.data.name;
+  else if(item.type==='agency') title = agencyLabel(item.data);
+  else if(item.type==='task') title = item.data.title;
+  else if(item.type==='note') title = (item.data.text||'').slice(0,50);
+  else if(item.type==='visit') title = item.data.title;
+  else if(item.type==='police') title = item.data.title;
+  else if(item.type==='clientFile') title = item.data.fileName;
+  return { typeLabel: labels[item.type]||item.type, title: title||'—' };
+}
+function viewTrash(){
+  purgeOldTrash();
+  const items = [...(db.trash||[])].sort((a,b)=>b.deletedAt.localeCompare(a.deletedAt));
+  return `
+  <div class="topbar"><div><h2>سلة المحذوفات</h2><div class="sub">العناصر المحذوفة تُحفظ ${TRASH_RETENTION_DAYS} يومًا ويمكن استعادتها خلال هذه المدة قبل حذفها نهائيًا</div></div></div>
+  <div class="panel">
+    ${items.length ? `<div class="row-list">${items.map(trashRowHtml).join('')}</div>` : emptyState('سلة المحذوفات فارغة','trash')}
+  </div>
+  `;
+}
+function trashRowHtml(item){
+  const {typeLabel, title} = trashItemInfo(item);
+  const daysLeft = daysLeftInTrash(item.deletedAt);
+  return `<div class="row-item">
+    <div class="main"><b>${esc(title)}</b><span class="meta">${esc(typeLabel)} · حُذف بتاريخ ${fmtDateBoth(item.deletedAt.slice(0,10))} · يُحذف نهائيًا خلال ${daysLeft} يوم</span></div>
+    <div class="actions">
+      <button class="btn btn-sm btn-gold" onclick="restoreTrashItem('${item.id}')">${ic('upload')}استعادة</button>
+      <button class="icon-btn del" onclick="permanentlyDeleteTrashItem('${item.id}')" title="حذف نهائي الآن">${ic('trash')}</button>
+    </div>
+  </div>`;
+}
+function restoreTrashItem(id){
+  const item = (db.trash||[]).find(x=>x.id===id);
+  if(!item) return;
+  if(item.type==='case'){ db.cases.push(item.data); if(item.extra && item.extra.notes) db.notes.push(...item.extra.notes); }
+  else if(item.type==='client'){ db.clients.push(item.data); }
+  else if(item.type==='agency'){ db.agencies.push(item.data); }
+  else if(item.type==='task'){ db.tasks.push(item.data); }
+  else if(item.type==='note'){ db.notes.push(item.data); }
+  else if(item.type==='visit'){ db.visits.push(item.data); }
+  else if(item.type==='police'){ db.policeCases.push(item.data); }
+  else if(item.type==='clientFile'){
+    const cl = db.clients.find(c=>c.id===item.extra.clientId);
+    if(!cl){ toast('تعذّرت الاستعادة — العميل الأصلي محذوف'); return; }
+    cl.files = cl.files||[];
+    cl.files.push(item.data);
+  }
+  db.trash = db.trash.filter(x=>x.id!==id);
+  saveDB(); toast('تمت الاستعادة'); render();
+}
+function permanentlyDeleteTrashItem(id){
+  confirmDelete('سيتم حذف هذا العنصر نهائيًا الآن ولن يمكن استعادته بعد ذلك. هل أنت متأكد؟', ()=>{
+    const item = (db.trash||[]).find(x=>x.id===id);
+    if(item && item.type==='clientFile'){
+      accountDoc().collection('files').doc(item.data.id).delete().catch(()=>{});
+    }
+    db.trash = db.trash.filter(x=>x.id!==id);
+    saveDB(); closeModal(); toast('تم الحذف النهائي'); render();
+  });
+}
+
+function showReminderPreview(type, id){
+  let title='—', rows=[];
+  if(type==='hearing'){
+    const c = db.cases.find(x=>x.id===id);
+    if(!c){ toast('لم يتم العثور على القضية'); return; }
+    title = esc(c.title);
+    rows = [
+      ['العميل', esc(clientName(c.clientId))],
+      ['نوع القضية', esc(c.type||'—')],
+      ['المحكمة', esc(c.court||'—')],
+      ['رقم القضية', esc(c.caseNo||'—')],
+      ['الحالة', esc(CASE_STATUS[c.status]||'—')],
+      ['الجلسة القادمة', c.nextHearing ? fmtDateBoth(c.nextHearing)+(c.nextHearingTime?' - '+esc(fmtTime(c.nextHearingTime)):'') : '—'],
+    ];
+    if(c.desc) rows.push(['ملاحظات', esc(c.desc)]);
+  } else if(type==='task'){
+    const t = db.tasks.find(x=>x.id===id);
+    if(!t){ toast('لم يتم العثور على المهمة'); return; }
+    title = esc(t.title);
+    rows = [
+      ['القضية المرتبطة', esc(t.caseId?caseTitle(t.caseId):'بدون')],
+      ['تاريخ الاستحقاق', t.due?fmtDateBoth(t.due):'—'],
+      ['الحالة', t.done?'منجزة':'غير منجزة'],
+    ];
+  } else if(type==='agency'){
+    const a = db.agencies.find(x=>x.id===id);
+    if(!a){ toast('لم يتم العثور على الوكالة'); return; }
+    title = esc(agencyLabel(a));
+    rows = [
+      ['العميل', esc(clientName(a.clientId))],
+      ['رقم الوكالة', esc(a.number||'—')],
+      ['القضية المرتبطة', esc(a.caseId?caseTitle(a.caseId):'بدون')],
+      ['تاريخ الإصدار', a.issueDate?fmtDateBoth(a.issueDate):'—'],
+      ['تاريخ الانتهاء', a.expiryDate?fmtDateBoth(a.expiryDate):'—'],
+    ];
+    if(a.notes) rows.push(['ملاحظات', esc(a.notes)]);
+  } else if(type==='visit'){
+    const v = db.visits.find(x=>x.id===id);
+    if(!v){ toast('لم يتم العثور على المراجعة'); return; }
+    title = esc(v.title);
+    rows = [
+      ['الجهة / الموقع', esc(v.location||'—')],
+      ['القضية المرتبطة', esc(v.caseId?caseTitle(v.caseId):'بدون')],
+      ['التاريخ', v.date?fmtDateBoth(v.date):'—'],
+      ['الحالة', esc(VISIT_STATUS[v.status]||'—')],
+    ];
+    if(v.notes) rows.push(['ملاحظات', esc(v.notes)]);
+  } else { return; }
+  openModal(`
+    <h3>${title}</h3>
+    <div class="row-list">
+      ${rows.map(([k,val])=>`<div class="row-item" style="cursor:default;"><div class="main"><b>${esc(k)}</b><span class="meta">${val}</span></div></div>`).join('')}
+    </div>
+    <p style="font-size:11px; color:var(--text-faint); margin-top:10px;">عرض للاطلاع فقط — للتعديل انتقل إلى القسم المخصص من القائمة الجانبية.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-block" onclick="closeModal()">إغلاق</button>
+    </div>
+  `);
 }
 
 let bellOpen = false;
@@ -908,7 +1068,7 @@ function agencyAlertBanner(){
 function render(){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.view===currentView));
   const root = document.getElementById('viewRoot');
-  const views = {dashboard:viewDashboard, cases:viewCases, clients:viewClients, clientDetail:viewClientDetail, agencies:viewAgencies, tasks:viewTasks, notes:viewNotes, visits:viewVisits, police:viewPolice, resources:viewResources, legal:viewLegal, settings:viewSettings};
+  const views = {dashboard:viewDashboard, cases:viewCases, clients:viewClients, clientDetail:viewClientDetail, agencies:viewAgencies, tasks:viewTasks, visits:viewVisits, police:viewPolice, trash:viewTrash, resources:viewResources, legal:viewLegal, settings:viewSettings};
   root.innerHTML = views[currentView]();
   bindViewEvents();
 }
@@ -971,7 +1131,7 @@ function viewDashboard(){
         <h3><span class="titlewrap">${ic('calendar')}الجلسات القادمة</span></h3>
         ${(()=>{ const s=[...db.cases.filter(c=>c.nextHearing)].sort((a,b)=>a.nextHearing.localeCompare(b.nextHearing)).slice(0,5);
           return s.length ? `<div class="row-list">${s.map(c=>{ const d=daysUntil(c.nextHearing); const cls=d<0?'overdue':(d<=3?'soon':'');
-            return `<div class="row-item ${cls}" style="cursor:pointer;" onclick="goto('cases'); setTimeout(()=>openCaseForm('${c.id}'),0)"><div class="main"><b>${esc(c.title)}</b><span class="meta">${esc(c.court||'—')} · ${esc(clientName(c.clientId))}</span></div><div class="meta">${fmtDateBoth(c.nextHearing)}${c.nextHearingTime?' - '+fmtTime(c.nextHearingTime):''}</div></div>`; }).join('')}</div>` : emptyState('لا توجد جلسات مجدولة قادمة','calendar'); })()}
+            return `<div class="row-item ${cls}" style="cursor:pointer;" onclick="showReminderPreview('hearing','${c.id}')"><div class="main"><b>${esc(c.title)}</b><span class="meta">${esc(c.court||'—')} · ${esc(clientName(c.clientId))}</span></div><div class="meta">${fmtDateBoth(c.nextHearing)}${c.nextHearingTime?' - '+fmtTime(c.nextHearingTime):''}</div></div>`; }).join('')}</div>` : emptyState('لا توجد جلسات مجدولة قادمة','calendar'); })()}
       </div>
     </div>
 
@@ -992,7 +1152,7 @@ function viewDashboard(){
       <div class="panel">
         <h3><span class="titlewrap">${ic('pin')}آخر المراجعات الميدانية</span></h3>
         ${(()=>{ const v=[...db.visits].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,4);
-          return v.length ? `<div class="row-list">${v.map(x=>`<div class="row-item" style="cursor:pointer;" onclick="goto('visits'); setTimeout(()=>openVisitForm('${x.id}'),0)"><div class="main"><b>${esc(x.title)}</b><span class="meta">${esc(x.location||'—')}</span></div><div class="meta">${fmtDateBoth(x.date)}</div></div>`).join('')}</div>` : emptyState('لا توجد مراجعات مسجّلة بعد','pin'); })()}
+          return v.length ? `<div class="row-list">${v.map(x=>`<div class="row-item" style="cursor:pointer;" onclick="showReminderPreview('visit','${x.id}')"><div class="main"><b>${esc(x.title)}</b><span class="meta">${esc(x.location||'—')}</span></div><div class="meta">${fmtDateBoth(x.date)}</div></div>`).join('')}</div>` : emptyState('لا توجد مراجعات مسجّلة بعد','pin'); })()}
       </div>
     </div>
   </div>
@@ -1074,7 +1234,10 @@ function saveCase(id){
   saveDB(); closeModal(); render();
 }
 function deleteCase(id){
-  confirmDelete('سيتم حذف هذه القضية نهائيًا مع كل الملاحظات المرتبطة بها. هل أنت متأكد؟', ()=>{
+  confirmDelete('سيتم نقل هذه القضية (مع ملاحظاتها) إلى سلة المحذوفات، ويمكن استعادتها خلال 15 يومًا. هل أنت متأكد؟', ()=>{
+    const caseObj = db.cases.find(c=>c.id===id);
+    const relatedNotes = db.notes.filter(n=>n.caseId===id);
+    if(caseObj) moveToTrash('case', caseObj, {notes:relatedNotes});
     db.cases = db.cases.filter(c=>c.id!==id);
     db.notes = db.notes.filter(n=>n.caseId!==id);
     saveDB(); closeModal(); render();
@@ -1135,7 +1298,9 @@ function saveClient(id){
   saveDB(); closeModal(); render();
 }
 function deleteClient(id){
-  confirmDelete('سيتم حذف هذا العميل نهائيًا (لن يتم حذف قضاياه). هل أنت متأكد؟', ()=>{
+  confirmDelete('سيتم نقل هذا العميل إلى سلة المحذوفات (لن يتم حذف قضاياه)، ويمكن استعادته خلال 15 يومًا. هل أنت متأكد؟', ()=>{
+    const clientObj = db.clients.find(c=>c.id===id);
+    if(clientObj) moveToTrash('client', clientObj);
     db.clients = db.clients.filter(c=>c.id!==id);
     saveDB(); closeModal();
     if(currentView==='clientDetail') goto('clients'); else render();
@@ -1235,10 +1400,11 @@ async function downloadClientFile(fileId, fileName){
   }catch(e){ toast('تعذّر تنزيل الملف — تحقق من الاتصال بالإنترنت.'); }
 }
 function deleteClientFile(clientId, fileId){
-  confirmDelete('سيتم حذف هذا الملف نهائيًا من ملف العميل. هل أنت متأكد؟', ()=>{
+  confirmDelete('سيتم نقل هذا الملف إلى سلة المحذوفات، ويمكن استعادته خلال 15 يومًا. هل أنت متأكد؟', ()=>{
     const cl = db.clients.find(c=>c.id===clientId);
+    const fileObj = (cl.files||[]).find(f=>f.id===fileId);
+    if(fileObj) moveToTrash('clientFile', fileObj, {clientId});
     cl.files = (cl.files||[]).filter(f=>f.id!==fileId);
-    accountDoc().collection('files').doc(fileId).delete().catch(()=>{});
     saveDB(); closeModal(); render();
   });
 }
@@ -1305,7 +1471,9 @@ function saveAgency(id){
   saveDB(); closeModal(); render();
 }
 function deleteAgency(id){
-  confirmDelete('سيتم حذف هذه الوكالة نهائيًا. هل أنت متأكد؟', ()=>{
+  confirmDelete('سيتم نقل هذه الوكالة إلى سلة المحذوفات، ويمكن استعادتها خلال 15 يومًا. هل أنت متأكد؟', ()=>{
+    const obj = db.agencies.find(a=>a.id===id);
+    if(obj) moveToTrash('agency', obj);
     db.agencies = db.agencies.filter(a=>a.id!==id); saveDB(); closeModal(); render();
   });
 }
@@ -1315,13 +1483,22 @@ function viewTasks(){
   const sorted = [...db.tasks].sort((a,b)=>{ if(a.done!==b.done) return a.done?1:-1; return (a.due||'9999').localeCompare(b.due||'9999'); });
   const doneTasks = db.tasks.filter(t=>t.done).length;
   const pendingTasks = db.tasks.length - doneTasks;
+  const notesSorted = [...db.notes].reverse();
   return `
   <div class="topbar">
-    <div><h2>المهام والمواعيد</h2><div class="sub">${pendingTasks} مهمة معلّقة من أصل ${db.tasks.length}</div></div>
-    <button class="btn btn-gold" onclick="openTaskForm()">${ic('plus')}مهمة جديدة</button>
+    <div><h2>المهام والملاحظات</h2><div class="sub">${pendingTasks} مهمة معلّقة من أصل ${db.tasks.length} · ${db.notes.length} ملاحظة</div></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="btn btn-gold" onclick="openTaskForm()">${ic('plus')}مهمة جديدة</button>
+      <button class="btn btn-ghost" onclick="openNoteForm()">${ic('plus')}ملاحظة جديدة</button>
+    </div>
   </div>
   <div class="panel">
+    <h3><span class="titlewrap">${ic('check_sq')}المهام</span><span class="count">${pendingTasks} معلّقة</span></h3>
     ${sorted.length ? `<div class="row-list">${sorted.map(rowTaskHtml).join('')}</div>` : emptyState('لا توجد مهام مسجّلة.','check_sq')}
+  </div>
+  <div class="panel">
+    <h3><span class="titlewrap">${ic('edit_note')}الملاحظات</span><span class="count">${db.notes.length}</span></h3>
+    ${notesSorted.length ? `<div class="row-list">${notesSorted.map(noteRowHtml).join('')}</div>` : emptyState('لا توجد ملاحظات مسجّلة.','edit_note')}
   </div>
   `;
 }
@@ -1367,25 +1544,14 @@ function saveTask(id){
   saveDB(); closeModal(); render();
 }
 function deleteTask(id){
-  confirmDelete('سيتم حذف هذه المهمة نهائيًا. هل أنت متأكد؟', ()=>{
+  confirmDelete('سيتم نقل هذه المهمة إلى سلة المحذوفات، ويمكن استعادتها خلال 15 يومًا. هل أنت متأكد؟', ()=>{
+    const obj = db.tasks.find(t=>t.id===id);
+    if(obj) moveToTrash('task', obj);
     db.tasks = db.tasks.filter(t=>t.id!==id); saveDB(); closeModal(); render();
   });
 }
 
-/* ============ NOTES (تشمل ملاحظات بدون قضية) ============ */
-function viewNotes(){
-  const sorted = [...db.notes].reverse();
-  const caseOptions = db.cases.map(c=>`<option value="${c.id}">${esc(c.title)}</option>`).join('');
-  return `
-  <div class="topbar">
-    <div><h2>الملاحظات</h2><div class="sub">مرتبطة بقضية أو ملاحظات عامة</div></div>
-    <button class="btn btn-gold" onclick="openNoteForm()">${ic('plus')}ملاحظة جديدة</button>
-  </div>
-  <div class="panel">
-    ${sorted.length ? `<div class="row-list">${sorted.map(noteRowHtml).join('')}</div>` : emptyState('لا توجد ملاحظات مسجّلة.','edit_note')}
-  </div>
-  `;
-}
+/* ============ NOTES (تشمل ملاحظات بدون قضية) — مدمجة ضمن صفحة المهام ============ */
 function noteRowHtml(n){
   return `<div class="row-item" style="align-items:flex-start;">
     <div class="main"><b>${n.caseId?esc(caseTitle(n.caseId)):'ملاحظة عامة'}</b><span class="meta">${fmtDateBoth(n.date)}</span><div style="margin-top:6px; font-size:13px; color:var(--text-dim); line-height:1.8;">${esc(n.text)}</div></div>
@@ -1411,7 +1577,9 @@ function saveNote(){
   saveDB(); toast('تمت إضافة الملاحظة'); closeModal(); render();
 }
 function deleteNote(id){
-  confirmDelete('سيتم حذف هذه الملاحظة نهائيًا. هل أنت متأكد؟', ()=>{
+  confirmDelete('سيتم نقل هذه الملاحظة إلى سلة المحذوفات، ويمكن استعادتها خلال 15 يومًا. هل أنت متأكد؟', ()=>{
+    const obj = db.notes.find(n=>n.id===id);
+    if(obj) moveToTrash('note', obj);
     db.notes = db.notes.filter(n=>n.id!==id); saveDB(); closeModal(); render();
   });
 }
@@ -1473,7 +1641,9 @@ function saveVisit(id){
   saveDB(); closeModal(); render();
 }
 function deleteVisit(id){
-  confirmDelete('سيتم حذف هذه المراجعة الميدانية نهائيًا. هل أنت متأكد؟', ()=>{
+  confirmDelete('سيتم نقل هذه المراجعة الميدانية إلى سلة المحذوفات، ويمكن استعادتها خلال 15 يومًا. هل أنت متأكد؟', ()=>{
+    const obj = db.visits.find(v=>v.id===id);
+    if(obj) moveToTrash('visit', obj);
     db.visits = db.visits.filter(v=>v.id!==id); saveDB(); closeModal(); render();
   });
 }
@@ -1542,7 +1712,9 @@ function savePolice(id){
   saveDB(); closeModal(); render();
 }
 function deletePolice(id){
-  confirmDelete('سيتم حذف هذه القضية نهائيًا. هل أنت متأكد؟', ()=>{
+  confirmDelete('سيتم نقل هذه القضية إلى سلة المحذوفات، ويمكن استعادتها خلال 15 يومًا. هل أنت متأكد؟', ()=>{
+    const obj = db.policeCases.find(p=>p.id===id);
+    if(obj) moveToTrash('police', obj);
     db.policeCases = db.policeCases.filter(p=>p.id!==id); saveDB(); closeModal(); render();
   });
 }
@@ -1666,7 +1838,7 @@ function importBackup(){
 }
 function wipeAll(){
   confirmDelete('سيتم حذف جميع البيانات (القضايا، العملاء، الوكالات، المهام، الملفات...) نهائيًا ولا يمكن التراجع عن هذا. هل أنت متأكد تمامًا؟', ()=>{
-    db = {clients:[], cases:[], tasks:[], notes:[], agencies:[], visits:[], policeCases:[], settings:{}};
+    db = {clients:[], cases:[], tasks:[], notes:[], agencies:[], visits:[], policeCases:[], trash:[], settings:{}};
     saveDB(); closeModal(); toast('تم الحذف'); render();
   });
 }
@@ -1806,6 +1978,7 @@ function showApp(){
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('authScreen').innerHTML = '';
   document.getElementById('appRoot').style.display = '';
+  purgeOldTrash();
   render();
   checkBrowserNotifications();
   clearInterval(window.__notifyTimer);
