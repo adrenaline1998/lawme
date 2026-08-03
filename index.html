@@ -391,6 +391,7 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
   width:38px; height:38px; border-radius:10px; background:var(--gold-dim); border:1px solid rgba(184,145,76,.3);
   display:flex; align-items:center; justify-content:center; font-family:'Almarai'; font-weight:800; color:var(--gold-light); font-size:14px; flex-shrink:0;
 }
+.avatar svg{width:45%; height:45%;}
 
 /* ---------- buttons ---------- */
 .btn{display:inline-flex; align-items:center; gap:7px; justify-content:center; background:var(--surface3); border:1px solid var(--line); color:var(--text); padding:9px 16px; border-radius:9px; font-size:13.5px; font-weight:600; transition:.15s;}
@@ -616,6 +617,17 @@ function emptyDB(){ return {clients:[], cases:[], tasks:[], notes:[], agencies:[
 function normalizeDB(d){
   d = Object.assign(emptyDB(), d||{});
   d.clients.forEach(c=>{ c.files = c.files||[]; });
+  const oldStatusMap = {active:'inreview', postponed:'inreview', closed:'closed'};
+  d.cases.forEach(c=>{
+    if(!c.hearings){
+      c.hearings = [];
+      if(c.nextHearing){ c.hearings.push({id:uid(), date:c.nextHearing, time:c.nextHearingTime||'', notes:''}); }
+    }
+    delete c.nextHearing; delete c.nextHearingTime;
+    if(c.status && oldStatusMap[c.status]) c.status = oldStatusMap[c.status];
+    if(!CASE_STATUS[c.status]) c.status = 'new';
+    if(!c.branch) c.branch = 'first';
+  });
   return d;
 }
 let currentAccountId = null;
@@ -781,7 +793,8 @@ function getDateValue(id){
 }
 
 const CASE_TYPES = ['تجارية','جنائية','أحوال شخصية','عمالية','إدارية','عامة','تنفيذ','أخرى'];
-const CASE_STATUS = {active:'نشطة', postponed:'مؤجلة', closed:'منتهية'};
+const CASE_STATUS = {new:'جديدة', inreview:'قيد النظر', closed:'منتهية'};
+const CASE_BRANCH = {first:'محكمة الدرجة الأولى', appeal:'استئناف', supreme:'العليا'};
 function agencyLabel(a){ return 'وكالة '+clientName(a.clientId)+(a.number?' (رقم '+a.number+')':''); }
 const VISIT_STATUS = {scheduled:'مجدولة', done:'تمت'};
 const POLICE_STATUS = {open:'قيد التحقيق', referred:'محالة للنيابة/المحكمة', closed:'محفوظة / منتهية'};
@@ -815,10 +828,11 @@ buildNav();
 /* ============ NAVIGATION ============ */
 let currentView = 'dashboard';
 let currentClientId = null;
+let currentCaseId = null;
 document.getElementById('navList').addEventListener('click', e=>{
   const item = e.target.closest('.nav-item');
   if(!item) return;
-  currentView = item.dataset.view; currentClientId = null;
+  currentView = item.dataset.view; currentClientId = null; currentCaseId = null;
   render(); closeSidebarMobile();
 });
 document.getElementById('menuBtn').addEventListener('click', ()=>{
@@ -830,7 +844,7 @@ function closeSidebarMobile(){
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('backdrop').classList.remove('open');
 }
-function goto(view, clientId){ currentView=view; currentClientId=clientId||null; render(); window.scrollTo(0,0); }
+function goto(view, id){ currentView=view; currentClientId=id||null; currentCaseId=id||null; render(); window.scrollTo(0,0); }
 
 /* ============ MODAL HELPERS ============ */
 function openModal(html){ document.getElementById('modalBody').innerHTML = html; document.getElementById('overlay').classList.add('open'); }
@@ -858,7 +872,7 @@ function runPendingAction(){
 /* ============ REMINDERS ============ */
 function getReminders(){
   const items = [];
-  db.cases.forEach(c=>{ if(c.nextHearing) items.push({key:'hearing_'+c.id+'_'+c.nextHearing, id:c.id, type:'hearing', title:c.title, date:c.nextHearing, time:c.nextHearingTime||'', days:daysUntil(c.nextHearing), meta:c.court||'جلسة', icon:'briefcase'}); });
+  db.cases.forEach(c=>{ (c.hearings||[]).forEach(h=>{ if(h.date) items.push({key:'hearing_'+h.id, id:c.id, hearingId:h.id, type:'hearing', title:c.title, date:h.date, time:h.time||'', days:daysUntil(h.date), meta:c.court||'جلسة', icon:'briefcase'}); }); });
   db.tasks.forEach(t=>{ if(!t.done && t.due) items.push({key:'task_'+t.id+'_'+t.due, id:t.id, type:'task', title:t.title, date:t.due, days:daysUntil(t.due), meta:t.caseId?caseTitle(t.caseId):'مهمة', icon:'check_sq'}); });
   db.agencies.forEach(a=>{ if(a.expiryDate) items.push({key:'agency_'+a.id+'_'+a.expiryDate, id:a.id, type:'agency', title:agencyLabel(a), date:a.expiryDate, days:daysUntil(a.expiryDate), meta:clientName(a.clientId), icon:'scroll'}); });
   db.visits.forEach(v=>{ if(v.status!=='done' && v.date) items.push({key:'visit_'+v.id+'_'+v.date, id:v.id, type:'visit', title:v.title, date:v.date, days:daysUntil(v.date), meta:v.location||'مراجعة ميدانية', icon:'pin'}); });
@@ -980,10 +994,11 @@ function showReminderPreview(type, id){
     rows = [
       ['العميل', esc(clientName(c.clientId))],
       ['نوع القضية', esc(c.type||'—')],
+      ['الفرع', esc(CASE_BRANCH[c.branch]||'—')],
       ['المحكمة', esc(c.court||'—')],
       ['رقم القضية', esc(c.caseNo||'—')],
       ['الحالة', esc(CASE_STATUS[c.status]||'—')],
-      ['الجلسة القادمة', c.nextHearing ? fmtDateBoth(c.nextHearing)+(c.nextHearingTime?' - '+esc(fmtTime(c.nextHearingTime)):'') : '—'],
+      ['الجلسة القادمة', (()=>{ const nh=nextHearingOf(c); return nh ? fmtDateBoth(nh.date)+(nh.time?' - '+esc(fmtTime(nh.time)):'') : '—'; })()],
     ];
     if(c.desc) rows.push(['ملاحظات', esc(c.desc)]);
   } else if(type==='task'){
@@ -1019,7 +1034,7 @@ function showReminderPreview(type, id){
     ];
     if(v.notes) rows.push(['ملاحظات', esc(v.notes)]);
   } else { return; }
-  const editFn = {hearing:`openCaseForm('${id}')`, task:`openTaskForm('${id}')`, agency:`openAgencyForm('${id}')`, visit:`openVisitForm('${id}')`}[type];
+  const editFn = {hearing:`closeModal(); goto('caseDetail','${id}')`, task:`openTaskForm('${id}')`, agency:`openAgencyForm('${id}')`, visit:`openVisitForm('${id}')`}[type];
   openModal(`
     <h3>${title}</h3>
     <div class="row-list">
@@ -1109,7 +1124,7 @@ function agencyAlertBanner(){
 function render(){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.view===currentView));
   const root = document.getElementById('viewRoot');
-  const views = {dashboard:viewDashboard, cases:viewCases, clients:viewClients, clientDetail:viewClientDetail, agencies:viewAgencies, tasks:viewTasks, visits:viewVisits, police:viewPolice, trash:viewTrash, resources:viewResources, legal:viewLegal, settings:viewSettings};
+  const views = {dashboard:viewDashboard, cases:viewCases, caseDetail:viewCaseDetail, clients:viewClients, clientDetail:viewClientDetail, agencies:viewAgencies, tasks:viewTasks, visits:viewVisits, police:viewPolice, trash:viewTrash, resources:viewResources, legal:viewLegal, settings:viewSettings};
   root.innerHTML = views[currentView]();
   bindViewEvents();
 }
@@ -1120,8 +1135,8 @@ function greeting(){
   return h<12 ? 'صباح الخير' : 'مساء الخير';
 }
 function viewDashboard(){
-  const activeCases = db.cases.filter(c=>c.status==='active').length;
-  const upcoming = db.cases.filter(c=>c.nextHearing && daysUntil(c.nextHearing)!==null && daysUntil(c.nextHearing)>=0 && daysUntil(c.nextHearing)<=7).length;
+  const activeCases = db.cases.filter(c=>c.status!=='closed').length;
+  const upcoming = db.cases.reduce((n,c)=> n + (c.hearings||[]).filter(h=>h.date && daysUntil(h.date)!==null && daysUntil(h.date)>=0 && daysUntil(h.date)<=7).length, 0);
   const pendingTasks = db.tasks.filter(t=>!t.done).length;
   const doneTasks = db.tasks.filter(t=>t.done).length;
   const totalTasks = db.tasks.length;
@@ -1178,9 +1193,13 @@ function viewDashboard(){
 
       <div class="panel">
         <h3><span class="titlewrap">${ic('calendar')}الجلسات القادمة</span></h3>
-        ${(()=>{ const s=[...db.cases.filter(c=>c.nextHearing)].sort((a,b)=>a.nextHearing.localeCompare(b.nextHearing)).slice(0,5);
-          return s.length ? `<div class="row-list">${s.map(c=>{ const d=daysUntil(c.nextHearing); const cls=d<0?'overdue':(d<=3?'soon':'');
-            return `<div class="row-item ${cls}" style="cursor:pointer;" onclick="showReminderPreview('hearing','${c.id}')"><div class="main"><b>${esc(c.title)}</b><span class="meta">${esc(c.court||'—')} · ${esc(clientName(c.clientId))}</span></div><div class="meta">${fmtDateBoth(c.nextHearing)}${c.nextHearingTime?' - '+fmtTime(c.nextHearingTime):''}</div></div>`; }).join('')}</div>` : emptyState('لا توجد جلسات مجدولة قادمة','calendar'); })()}
+        ${(()=>{
+          const upcomingHearings = [];
+          db.cases.forEach(c=>{ (c.hearings||[]).forEach(h=>{ if(h.date && daysUntil(h.date)>=0) upcomingHearings.push({c,h}); }); });
+          upcomingHearings.sort((a,b)=>a.h.date.localeCompare(b.h.date)||(a.h.time||'').localeCompare(b.h.time||''));
+          const s = upcomingHearings.slice(0,5);
+          return s.length ? `<div class="row-list">${s.map(({c,h})=>{ const d=daysUntil(h.date); const cls=d<0?'overdue':(d<=3?'soon':'');
+            return `<div class="row-item ${cls}" style="cursor:pointer;" onclick="showReminderPreview('hearing','${c.id}')"><div class="main"><b>${esc(c.title)}</b><span class="meta">${esc(c.court||'—')} · ${esc(clientName(c.clientId))}</span></div><div class="meta">${fmtDateBoth(h.date)}${h.time?' - '+fmtTime(h.time):''}</div></div>`; }).join('')}</div>` : emptyState('لا توجد جلسات مجدولة قادمة','calendar'); })()}
       </div>
     </div>
 
@@ -1242,6 +1261,14 @@ function waLink(phone){
   return 'https://wa.me/'+digits;
 }
 function caseTitle(id){ const c = db.cases.find(x=>x.id===id); return c? c.title : '—'; }
+function nextHearingOf(c){
+  const list = (c.hearings||[]).filter(h=>h.date);
+  if(!list.length) return null;
+  const upcoming = list.filter(h=>daysUntil(h.date)>=0).sort((a,b)=>a.date.localeCompare(b.date)||(a.time||'').localeCompare(b.time||''));
+  if(upcoming.length) return upcoming[0];
+  const past = list.sort((a,b)=>b.date.localeCompare(a.date));
+  return past[0];
+}
 function emptyState(text, iconName){ return `<div class="empty">${ic(iconName||'search')}<p>${text}</p></div>`; }
 
 /* ============ CASES ============ */
@@ -1255,36 +1282,37 @@ function viewCases(){
   `;
 }
 function caseCardHtml(c){
-  const d = c.nextHearing ? daysUntil(c.nextHearing) : null;
-  return `<div class="file-card" data-tab="${esc(c.caseNo||'بدون رقم')}" onclick="openCaseForm('${c.id}')">
-    <span class="status-dot status-${c.status}"></span>
+  const nh = nextHearingOf(c);
+  const d = nh ? daysUntil(nh.date) : null;
+  return `<div class="file-card" data-tab="${esc(c.caseNo||'بدون رقم')}" onclick="goto('caseDetail','${c.id}')">
+    <span class="status-dot status-${c.status==='closed'?'closed':c.status==='new'?'postponed':'active'}"></span>
     <div class="case-title">${esc(c.title)}</div>
     <div class="case-meta">
       <div><b>النوع:</b> ${esc(c.type||'—')}</div>
+      <div><b>الفرع:</b> ${esc(CASE_BRANCH[c.branch]||'—')}</div>
       <div><b>العميل:</b> ${esc(clientName(c.clientId))}</div>
       <div><b>المحكمة:</b> ${esc(c.court||'—')}</div>
     </div>
     <span class="tag">${CASE_STATUS[c.status]}</span>
-    ${c.nextHearing ? `<div class="next-hearing">${ic('calendar')}الجلسة القادمة: ${fmtDateBoth(c.nextHearing)}${c.nextHearingTime?' - '+fmtTime(c.nextHearingTime):''} ${d<0?'(فائتة)':d<=3?'(قريبة)':''}</div>` : ''}
+    ${nh ? `<div class="next-hearing">${ic('calendar')}الجلسة القادمة: ${fmtDateBoth(nh.date)}${nh.time?' - '+fmtTime(nh.time):''} ${d<0?'(فائتة)':d<=3?'(قريبة)':''}</div>` : ''}
   </div>`;
 }
 function openCaseForm(id){
   const c = id ? db.cases.find(x=>x.id===id) : null;
   const clientOptions = db.clients.map(cl=>`<option value="${cl.id}" ${c&&c.clientId===cl.id?'selected':''}>${esc(cl.name)}</option>`).join('');
   openModal(`
-    <h3>${c?'تعديل القضية':'قضية جديدة'}</h3>
+    <h3>${c?'تعديل بيانات القضية':'قضية جديدة'}</h3>
     <div class="field"><label>عنوان القضية</label><input id="f_title" value="${c?esc(c.title):''}" placeholder="مثال: مطالبة مالية - شركة الأفق"></div>
     <div class="field-row">
       <div class="field"><label>نوع القضية</label><select id="f_type">${CASE_TYPES.map(t=>`<option ${c&&c.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
       <div class="field"><label>الحالة</label><select id="f_status">${Object.entries(CASE_STATUS).map(([k,v])=>`<option value="${k}" ${c&&c.status===k?'selected':''}>${v}</option>`).join('')}</select></div>
     </div>
+    <div class="field"><label>الفرع (درجة التقاضي)</label><select id="f_branch">${Object.entries(CASE_BRANCH).map(([k,v])=>`<option value="${k}" ${c&&c.branch===k?'selected':''}>${v}</option>`).join('')}</select></div>
     <div class="field"><label>العميل</label><select id="f_client"><option value="">— بدون —</option>${clientOptions}</select></div>
     <div class="field-row">
       <div class="field"><label>رقم القضية</label><input id="f_caseNo" value="${c?esc(c.caseNo||''):''}" placeholder="رقم القيد بناجز"></div>
       <div class="field"><label>المحكمة</label><input id="f_court" value="${c?esc(c.court||''):''}" placeholder="مثال: المحكمة التجارية بالرياض"></div>
     </div>
-    ${dateFieldHtml('f_hearing', c?c.nextHearing:'', 'تاريخ الجلسة القادمة')}
-    <div class="field"><label>وقت الجلسة (اختياري)</label><input type="time" id="f_hearingTime" value="${c?c.nextHearingTime||'':''}"></div>
     <div class="field"><label>ملاحظات مختصرة</label><textarea id="f_desc" placeholder="وصف موجز للقضية...">${c?esc(c.desc||''):''}</textarea></div>
     <div class="modal-actions">
       <button class="btn btn-gold btn-block" onclick="saveCase(${c?`'${c.id}'`:'null'})">حفظ</button>
@@ -1299,21 +1327,105 @@ function saveCase(id){
   if(!title){ toast('الرجاء إدخال عنوان القضية'); return; }
   const data = {
     title, type: document.getElementById('f_type').value, status: document.getElementById('f_status').value,
+    branch: document.getElementById('f_branch').value,
     clientId: document.getElementById('f_client').value, caseNo: document.getElementById('f_caseNo').value.trim(),
-    court: document.getElementById('f_court').value.trim(), nextHearing: getDateValue('f_hearing'), nextHearingTime: document.getElementById('f_hearingTime').value,
-    desc: document.getElementById('f_desc').value.trim(),
+    court: document.getElementById('f_court').value.trim(), desc: document.getElementById('f_desc').value.trim(),
   };
   if(id){ Object.assign(db.cases.find(c=>c.id===id), data); toast('تم تحديث القضية'); }
-  else{ data.id = uid(); db.cases.push(data); toast('تمت إضافة القضية'); }
-  saveDB(); closeModal(); render();
+  else{ data.id = uid(); data.hearings = []; db.cases.push(data); toast('تمت إضافة القضية — يمكنك الآن إضافة جلساتها من ملف القضية'); }
+  saveDB(); closeModal();
+  if(currentView==='caseDetail') render(); else { goto('caseDetail', id||data.id); }
 }
 function deleteCase(id){
-  confirmDelete('سيتم نقل هذه القضية (مع ملاحظاتها) إلى سلة المحذوفات، ويمكن استعادتها خلال 15 يومًا. هل أنت متأكد؟', ()=>{
+  confirmDelete('سيتم نقل هذه القضية (مع ملاحظاتها وجلساتها) إلى سلة المحذوفات، ويمكن استعادتها خلال 15 يومًا. هل أنت متأكد؟', ()=>{
     const caseObj = db.cases.find(c=>c.id===id);
     const relatedNotes = db.notes.filter(n=>n.caseId===id);
     if(caseObj) moveToTrash('case', caseObj, {notes:relatedNotes});
     db.cases = db.cases.filter(c=>c.id!==id);
     db.notes = db.notes.filter(n=>n.caseId!==id);
+    saveDB(); closeModal();
+    if(currentView==='caseDetail') goto('cases'); else render();
+  });
+}
+
+/* ============ CASE DETAIL (ملف القضية والجلسات) ============ */
+function viewCaseDetail(){
+  const c = db.cases.find(x=>x.id===currentCaseId);
+  if(!c) return `<div class="panel">${emptyState('لم يتم العثور على القضية','briefcase')}</div>`;
+  const hearings = [...(c.hearings||[])].sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.time||'').localeCompare(b.time||''));
+  const relatedNotes = db.notes.filter(n=>n.caseId===c.id);
+  return `
+  <a class="back-link" href="javascript:goto('cases')">${ic('chevron')}العودة إلى القضايا</a>
+  <div class="client-hero">
+    <div class="avatar avatar-lg">${ic('briefcase')}</div>
+    <div class="info">
+      <h2>${esc(c.title)}</h2>
+      <div class="meta-row">
+        <span>${ic('users')}${esc(clientName(c.clientId))}</span>
+        <span>${ic('building')}${esc(c.court||'—')}</span>
+        <span>${ic('idcard')}${esc(c.caseNo||'بدون رقم')}</span>
+      </div>
+      <div class="meta-row" style="margin-top:8px;">
+        <span class="tag">${esc(c.type||'—')}</span>
+        <span class="tag">${esc(CASE_BRANCH[c.branch]||'—')}</span>
+        <span class="tag">${esc(CASE_STATUS[c.status]||'—')}</span>
+      </div>
+    </div>
+    <div style="margin-inline-start:auto;">
+      <button class="btn btn-ghost btn-sm" onclick="openCaseForm('${c.id}')">${ic('edit')}تعديل البيانات</button>
+    </div>
+  </div>
+  ${c.desc ? `<div class="panel"><h3><span class="titlewrap">${ic('edit_note')}وصف القضية</span></h3><p style="font-size:13.5px; color:var(--text-dim); line-height:1.9;">${esc(c.desc)}</p></div>` : ''}
+
+  <div class="panel">
+    <h3><span class="titlewrap">${ic('calendar')}الجلسات</span><button class="btn btn-sm btn-gold" onclick="openHearingForm('${c.id}')">${ic('plus')}إضافة جلسة</button></h3>
+    ${hearings.length ? `<div class="row-list">${hearings.map(h=>{
+      const d = daysUntil(h.date); const cls = d<0?'overdue':(d<=3?'soon':'');
+      return `<div class="row-item ${cls}">
+        <div class="main"><b>${fmtDateBoth(h.date)}${h.time?' - '+fmtTime(h.time):''}</b>${h.notes?`<span class="meta">${esc(h.notes)}</span>`:''}</div>
+        <div class="actions">
+          <button class="icon-btn" onclick="openHearingForm('${c.id}','${h.id}')" title="تعديل">${ic('edit')}</button>
+          <button class="icon-btn del" onclick="deleteHearing('${c.id}','${h.id}')" title="حذف">${ic('trash')}</button>
+        </div>
+      </div>`;
+    }).join('')}</div>` : emptyState('لا توجد جلسات مسجّلة لهذه القضية بعد.','calendar')}
+  </div>
+
+  <div class="panel">
+    <h3><span class="titlewrap">${ic('edit_note')}ملاحظات القضية</span><span class="count">${relatedNotes.length}</span></h3>
+    ${relatedNotes.length ? `<div class="row-list">${relatedNotes.slice().reverse().map(noteRowHtml).join('')}</div>` : emptyState('لا توجد ملاحظات مرتبطة بهذه القضية بعد.','edit_note')}
+  </div>
+  `;
+}
+function openHearingForm(caseId, hearingId){
+  const c = db.cases.find(x=>x.id===caseId);
+  const h = hearingId ? (c.hearings||[]).find(x=>x.id===hearingId) : null;
+  openModal(`
+    <h3>${h?'تعديل الجلسة':'إضافة جلسة جديدة'}</h3>
+    ${dateFieldHtml('f_hdate', h?h.date:'', 'تاريخ الجلسة')}
+    <div class="field"><label>وقت الجلسة (اختياري)</label><input type="time" id="f_htime" value="${h?h.time||'':''}"></div>
+    <div class="field"><label>ملاحظات الجلسة</label><textarea id="f_hnotes" placeholder="ما دار في الجلسة، القرارات، الإجراء القادم...">${h?esc(h.notes||''):''}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-gold btn-block" onclick="saveHearing('${caseId}'${h?`,'${h.id}'`:''})">حفظ</button>
+      ${h?`<button class="btn btn-ghost" onclick="deleteHearing('${caseId}','${h.id}')">حذف</button>`:''}
+      <button class="btn btn-ghost" onclick="closeModal()">إلغاء</button>
+    </div>
+  `);
+}
+function saveHearing(caseId, hearingId){
+  const date = getDateValue('f_hdate');
+  if(!date){ toast('الرجاء اختيار تاريخ الجلسة'); return; }
+  const c = db.cases.find(x=>x.id===caseId);
+  c.hearings = c.hearings||[];
+  const data = { date, time: document.getElementById('f_htime').value, notes: document.getElementById('f_hnotes').value.trim() };
+  if(hearingId){ Object.assign(c.hearings.find(h=>h.id===hearingId), data); toast('تم تحديث الجلسة'); }
+  else{ data.id = uid(); c.hearings.push(data); toast('تمت إضافة الجلسة'); }
+  saveDB(); closeModal(); render();
+}
+function deleteHearing(caseId, hearingId){
+  confirmDelete('سيتم حذف هذه الجلسة نهائيًا من ملف القضية. هل أنت متأكد؟', ()=>{
+    const c = db.cases.find(x=>x.id===caseId);
+    c.hearings = (c.hearings||[]).filter(h=>h.id!==hearingId);
     saveDB(); closeModal(); render();
   });
 }
@@ -1413,7 +1525,7 @@ function viewClientDetail(){
     <div>
       <div class="panel">
         <h3><span class="titlewrap">${ic('briefcase')}قضايا العميل</span><span class="count">${cases.length}</span></h3>
-        ${cases.length ? `<div class="row-list">${cases.map(c=>`<div class="row-item" onclick="goto('cases'); setTimeout(()=>openCaseForm('${c.id}'),0)" style="cursor:pointer;"><div class="main"><b>${esc(c.title)}</b><span class="meta">${esc(c.type||'—')} · ${CASE_STATUS[c.status]}</span></div><span class="tag">${esc(c.caseNo||'—')}</span></div>`).join('')}</div>` : emptyState('لا توجد قضايا مرتبطة بهذا العميل بعد','briefcase')}
+        ${cases.length ? `<div class="row-list">${cases.map(c=>`<div class="row-item" onclick="goto('caseDetail','${c.id}')" style="cursor:pointer;"><div class="main"><b>${esc(c.title)}</b><span class="meta">${esc(c.type||'—')} · ${CASE_STATUS[c.status]}</span></div><span class="tag">${esc(c.caseNo||'—')}</span></div>`).join('')}</div>` : emptyState('لا توجد قضايا مرتبطة بهذا العميل بعد','briefcase')}
       </div>
       <div class="panel">
         <h3><span class="titlewrap">${ic('scroll')}الوكالات</span><span class="count">${agencies.length}</span></h3>
