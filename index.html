@@ -210,14 +210,37 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
 .stat-card{cursor:pointer;}
 .stat-card:active{transform:translateY(0) scale(.98);}
 
+/* ---------- section labels ---------- */
+.section-eyebrow{
+  font-size:11.5px; font-weight:800; color:var(--gold-light); letter-spacing:.5px;
+  margin-bottom:10px; display:flex; align-items:center; gap:8px;
+}
+.section-eyebrow::after{content:""; flex:1; height:1px; background:var(--line);}
+
 /* ---------- quick actions ---------- */
-.quick-actions{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:22px;}
+.quick-actions{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:26px;}
 .qa-btn{
   display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--line);
   padding:10px 15px; border-radius:30px; font-size:12.5px; font-weight:600; color:var(--text-dim); transition:.15s;
 }
 .qa-btn svg{width:15px; height:15px; color:var(--gold-light);}
 .qa-btn:hover{border-color:var(--gold); color:var(--text); transform:translateY(-1px); box-shadow:var(--shadow);}
+
+/* ---------- reminder row icon ---------- */
+.rem-ico{
+  width:30px; height:30px; border-radius:8px; background:var(--gold-dim); border:1px solid rgba(184,145,76,.25);
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.rem-ico svg{width:14px; height:14px; color:var(--gold-light);}
+
+/* ---------- split stats within one panel ---------- */
+.stats-split{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+.stat-block{padding-inline-start:0;}
+.stat-block + .stat-block{border-inline-start:1px solid var(--line); padding-inline-start:18px;}
+.stat-block-title{display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:700; color:var(--text-dim); margin-bottom:12px;}
+.stat-block-title svg{width:14px; height:14px; color:var(--gold-light);}
+.stat-block .donut-wrap{flex-direction:column; align-items:center; gap:12px; text-align:center;}
+.stat-block .legend{align-items:flex-start; width:100%;}
 
 /* ---------- greeting / live clock ---------- */
 .greet-row{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
@@ -446,6 +469,10 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
 @media(max-width:960px){
   .stat-grid{grid-template-columns:repeat(2,1fr);}
   .two-col, .info-grid{grid-template-columns:1fr;}
+}
+@media(max-width:560px){
+  .stats-split{grid-template-columns:1fr; gap:20px;}
+  .stat-block + .stat-block{border-inline-start:none; padding-inline-start:0; border-top:1px solid var(--line); padding-top:18px;}
 }
 @media(max-width:760px){
   .sidebar{position:fixed; right:0; top:0; z-index:90; transform:translateX(100%); transition:.25s; width:80vw; max-width:290px; box-shadow:-10px 0 30px rgba(0,0,0,.4);}
@@ -1119,6 +1146,7 @@ function viewDashboard(){
 
   ${agencyAlertBanner()}
 
+  <div class="section-eyebrow">إجراءات سريعة</div>
   <div class="quick-actions">
     <button class="qa-btn" onclick="openCaseForm()">${ic('plus')}${ic('briefcase')}قضية جديدة</button>
     <button class="qa-btn" onclick="openClientForm()">${ic('plus')}${ic('users')}عميل جديد</button>
@@ -1127,6 +1155,7 @@ function viewDashboard(){
     <button class="qa-btn" onclick="openVisitForm()">${ic('plus')}${ic('pin')}مراجعة ميدانية</button>
   </div>
 
+  <div class="section-eyebrow">نظرة عامة</div>
   <div class="stat-grid">
     <div class="stat-card ok" onclick="goto('cases')"><div class="top-row"><span class="lbl">قضايا نشطة</span><div class="ico-badge">${ic('briefcase')}</div></div><div class="num">${activeCases}</div></div>
     <div class="stat-card" onclick="goto('clients')"><div class="top-row"><span class="lbl">العملاء</span><div class="ico-badge">${ic('users')}</div></div><div class="num">${db.clients.length}</div></div>
@@ -1139,7 +1168,10 @@ function viewDashboard(){
       <div class="panel">
         <h3><span class="titlewrap">${ic('bell')}التذكيرات القريبة</span><span class="count">أقرب ١٤ يومًا</span></h3>
         ${rem.length ? `<div class="row-list">${rem.map(r=>`<div class="row-item ${r.days<0?'overdue':r.days<=3?'soon':''}" style="cursor:pointer;" onclick="goToReminder('${r.type}','${r.id}')">
-          <div class="main"><b>${esc(r.title)}</b><span class="meta">${esc(r.meta)}</span></div>
+          <div style="display:flex; align-items:center; gap:10px; min-width:0;">
+            <div class="rem-ico">${ic(r.icon)}</div>
+            <div class="main"><b>${esc(r.title)}</b><span class="meta">${esc(r.meta)}</span></div>
+          </div>
           <div class="meta">${fmtDateBoth(r.date)} ${r.days<0?'(فائتة)':r.days===0?'(اليوم)':'(بعد '+r.days+' يوم)'}</div>
         </div>`).join('')}</div>` : emptyState('لا توجد تذكيرات قريبة — كل شيء تحت السيطرة','check_sq')}
       </div>
@@ -1154,42 +1186,50 @@ function viewDashboard(){
 
     <div>
       <div class="panel">
-        <h3><span class="titlewrap">${ic('check_sq')}إحصائية المهام</span></h3>
-        <div class="donut-wrap">
-          <div class="donut" style="background:conic-gradient(var(--ok) 0 ${donePct}%, var(--surface3) ${donePct}% 100%);">
-            <div class="donut-center"><b>${donePct}%</b><span>منجزة</span></div>
+        <h3><span class="titlewrap">${ic('check_sq')}الإحصائيات</span></h3>
+        <div class="stats-split">
+          <div class="stat-block">
+            <div class="stat-block-title">${ic('check_sq')}المهام</div>
+            <div class="donut-wrap">
+              <div class="donut" style="background:conic-gradient(var(--ok) 0 ${donePct}%, var(--surface3) ${donePct}% 100%);">
+                <div class="donut-center"><b>${donePct}%</b><span>منجزة</span></div>
+              </div>
+              <div class="legend">
+                <div class="li"><span class="sw" style="background:var(--ok)"></span><b>${doneTasks}</b> منجزة</div>
+                <div class="li"><span class="sw" style="background:var(--surface3)"></span><b>${pendingTasks}</b> غير منجزة</div>
+                <div class="li"><span class="sw" style="background:var(--danger)"></span><b>${db.tasks.filter(t=>!t.done && t.due && daysUntil(t.due)<0).length}</b> متأخرة</div>
+              </div>
+            </div>
           </div>
-          <div class="legend">
-            <div class="li"><span class="sw" style="background:var(--ok)"></span><b>${doneTasks}</b> منجزة</div>
-            <div class="li"><span class="sw" style="background:var(--surface3)"></span><b>${pendingTasks}</b> غير منجزة</div>
-            <div class="li"><span class="sw" style="background:var(--danger)"></span><b>${db.tasks.filter(t=>!t.done && t.due && daysUntil(t.due)<0).length}</b> متأخرة</div>
+          <div class="stat-block">
+            <div class="stat-block-title">${ic('edit_note')}الملاحظات</div>
+            ${db.notes.length ? `<div class="donut-wrap">
+              <div class="donut" style="background:conic-gradient(var(--gold) 0 ${notesLinkedPct}%, var(--surface3) ${notesLinkedPct}% 100%);">
+                <div class="donut-center"><b>${notesLinkedPct}%</b><span>مرتبطة</span></div>
+              </div>
+              <div class="legend">
+                <div class="li"><span class="sw" style="background:var(--gold)"></span><b>${notesLinked}</b> مرتبطة بقضية</div>
+                <div class="li"><span class="sw" style="background:var(--surface3)"></span><b>${notesGeneral}</b> عامة</div>
+              </div>
+            </div>` : emptyState('لا توجد ملاحظات بعد','edit_note')}
           </div>
         </div>
       </div>
+
       <div class="panel">
         <h3><span class="titlewrap">${ic('pin')}آخر المراجعات الميدانية</span></h3>
         ${(()=>{ const v=[...db.visits].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,4);
           return v.length ? `<div class="row-list">${v.map(x=>`<div class="row-item" style="cursor:pointer;" onclick="showReminderPreview('visit','${x.id}')"><div class="main"><b>${esc(x.title)}</b><span class="meta">${esc(x.location||'—')}</span></div><div class="meta">${fmtDateBoth(x.date)}</div></div>`).join('')}</div>` : emptyState('لا توجد مراجعات مسجّلة بعد','pin'); })()}
       </div>
-      <div class="panel">
-        <h3><span class="titlewrap">${ic('edit_note')}الملاحظات</span><span class="count">${db.notes.length} إجمالًا</span></h3>
-        ${db.notes.length ? `
-        <div class="donut-wrap">
-          <div class="donut" style="background:conic-gradient(var(--gold) 0 ${notesLinkedPct}%, var(--surface3) ${notesLinkedPct}% 100%);">
-            <div class="donut-center"><b>${notesLinkedPct}%</b><span>مرتبطة</span></div>
-          </div>
-          <div class="legend">
-            <div class="li"><span class="sw" style="background:var(--gold)"></span><b>${notesLinked}</b> مرتبطة بقضية</div>
-            <div class="li"><span class="sw" style="background:var(--surface3)"></span><b>${notesGeneral}</b> ملاحظة عامة</div>
-          </div>
-        </div>
-        <div class="row-list" style="margin-top:14px;">
-          ${[...db.notes].reverse().slice(0,4).map(n=>`<div class="row-item" style="cursor:pointer;" onclick="showNotePreview('${n.id}')"><div class="main"><b>${n.caseId?esc(caseTitle(n.caseId)):'ملاحظة عامة'}</b><span class="meta">${esc((n.text||'').slice(0,50))}${(n.text||'').length>50?'...':''}</span></div><div class="meta">${fmtDate(n.date)}</div></div>`).join('')}
-        </div>
-        ` : emptyState('لا توجد ملاحظات مسجّلة بعد','edit_note')}
-      </div>
     </div>
   </div>
+
+  ${db.notes.length ? `<div class="panel">
+    <h3><span class="titlewrap">${ic('edit_note')}آخر الملاحظات</span><span class="count">${db.notes.length} إجمالًا</span></h3>
+    <div class="row-list">
+      ${[...db.notes].reverse().slice(0,4).map(n=>`<div class="row-item" style="cursor:pointer;" onclick="showNotePreview('${n.id}')"><div class="main"><b>${n.caseId?esc(caseTitle(n.caseId)):'ملاحظة عامة'}</b><span class="meta">${esc((n.text||'').slice(0,60))}${(n.text||'').length>60?'...':''}</span></div><div class="meta">${fmtDate(n.date)}</div></div>`).join('')}
+    </div>
+  </div>` : ''}
   `;
 }
 function clientName(id){ const c = db.clients.find(x=>x.id===id); return c? c.name : 'بدون عميل'; }
