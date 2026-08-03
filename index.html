@@ -931,6 +931,19 @@ function permanentlyDeleteTrashItem(id){
   });
 }
 
+function showNotePreview(id){
+  const n = db.notes.find(x=>x.id===id);
+  if(!n){ toast('لم يتم العثور على الملاحظة'); return; }
+  openModal(`
+    <h3>${n.caseId?esc(caseTitle(n.caseId)):'ملاحظة عامة'}</h3>
+    <p style="font-size:12px; color:var(--text-faint); margin-bottom:10px;">${fmtDateBoth(n.date)}</p>
+    <p style="font-size:14px; color:var(--text-dim); line-height:1.9; white-space:pre-wrap;">${esc(n.text)}</p>
+    <div class="modal-actions">
+      <button class="btn btn-gold btn-block" onclick="openNoteForm('${n.id}')">${ic('edit')}تعديل</button>
+      <button class="btn btn-ghost" onclick="closeModal()">إغلاق</button>
+    </div>
+  `);
+}
 function showReminderPreview(type, id){
   let title='—', rows=[];
   if(type==='hearing'){
@@ -979,14 +992,15 @@ function showReminderPreview(type, id){
     ];
     if(v.notes) rows.push(['ملاحظات', esc(v.notes)]);
   } else { return; }
+  const editFn = {hearing:`openCaseForm('${id}')`, task:`openTaskForm('${id}')`, agency:`openAgencyForm('${id}')`, visit:`openVisitForm('${id}')`}[type];
   openModal(`
     <h3>${title}</h3>
     <div class="row-list">
       ${rows.map(([k,val])=>`<div class="row-item" style="cursor:default;"><div class="main"><b>${esc(k)}</b><span class="meta">${val}</span></div></div>`).join('')}
     </div>
-    <p style="font-size:11px; color:var(--text-faint); margin-top:10px;">عرض للاطلاع فقط — للتعديل انتقل إلى القسم المخصص من القائمة الجانبية.</p>
     <div class="modal-actions">
-      <button class="btn btn-ghost btn-block" onclick="closeModal()">إغلاق</button>
+      <button class="btn btn-gold btn-block" onclick="${editFn}">${ic('edit')}تعديل</button>
+      <button class="btn btn-ghost" onclick="closeModal()">إغلاق</button>
     </div>
   `);
 }
@@ -1087,6 +1101,9 @@ function viewDashboard(){
   const donePct = totalTasks? Math.round(doneTasks/totalTasks*100) : 0;
 
   const rem = getReminders().filter(r=>r.days<=14).slice(0,7);
+  const notesLinked = db.notes.filter(n=>n.caseId).length;
+  const notesGeneral = db.notes.length - notesLinked;
+  const notesLinkedPct = db.notes.length ? Math.round(notesLinked/db.notes.length*100) : 0;
 
   return `
   <div class="topbar">
@@ -1153,6 +1170,23 @@ function viewDashboard(){
         <h3><span class="titlewrap">${ic('pin')}آخر المراجعات الميدانية</span></h3>
         ${(()=>{ const v=[...db.visits].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,4);
           return v.length ? `<div class="row-list">${v.map(x=>`<div class="row-item" style="cursor:pointer;" onclick="showReminderPreview('visit','${x.id}')"><div class="main"><b>${esc(x.title)}</b><span class="meta">${esc(x.location||'—')}</span></div><div class="meta">${fmtDateBoth(x.date)}</div></div>`).join('')}</div>` : emptyState('لا توجد مراجعات مسجّلة بعد','pin'); })()}
+      </div>
+      <div class="panel">
+        <h3><span class="titlewrap">${ic('edit_note')}الملاحظات</span><span class="count">${db.notes.length} إجمالًا</span></h3>
+        ${db.notes.length ? `
+        <div class="donut-wrap">
+          <div class="donut" style="background:conic-gradient(var(--gold) 0 ${notesLinkedPct}%, var(--surface3) ${notesLinkedPct}% 100%);">
+            <div class="donut-center"><b>${notesLinkedPct}%</b><span>مرتبطة</span></div>
+          </div>
+          <div class="legend">
+            <div class="li"><span class="sw" style="background:var(--gold)"></span><b>${notesLinked}</b> مرتبطة بقضية</div>
+            <div class="li"><span class="sw" style="background:var(--surface3)"></span><b>${notesGeneral}</b> ملاحظة عامة</div>
+          </div>
+        </div>
+        <div class="row-list" style="margin-top:14px;">
+          ${[...db.notes].reverse().slice(0,4).map(n=>`<div class="row-item" style="cursor:pointer;" onclick="showNotePreview('${n.id}')"><div class="main"><b>${n.caseId?esc(caseTitle(n.caseId)):'ملاحظة عامة'}</b><span class="meta">${esc((n.text||'').slice(0,50))}${(n.text||'').length>50?'...':''}</span></div><div class="meta">${fmtDate(n.date)}</div></div>`).join('')}
+        </div>
+        ` : emptyState('لا توجد ملاحظات مسجّلة بعد','edit_note')}
       </div>
     </div>
   </div>
@@ -1555,26 +1589,33 @@ function deleteTask(id){
 function noteRowHtml(n){
   return `<div class="row-item" style="align-items:flex-start;">
     <div class="main"><b>${n.caseId?esc(caseTitle(n.caseId)):'ملاحظة عامة'}</b><span class="meta">${fmtDateBoth(n.date)}</span><div style="margin-top:6px; font-size:13px; color:var(--text-dim); line-height:1.8;">${esc(n.text)}</div></div>
-    <div class="actions"><button class="icon-btn del" onclick="deleteNote('${n.id}')" title="حذف">${ic('trash')}</button></div>
+    <div class="actions">
+      <button class="icon-btn" onclick="openNoteForm('${n.id}')" title="تعديل">${ic('edit')}</button>
+      <button class="icon-btn del" onclick="deleteNote('${n.id}')" title="حذف">${ic('trash')}</button>
+    </div>
   </div>`;
 }
-function openNoteForm(){
-  const caseOptions = db.cases.map(c=>`<option value="${c.id}">${esc(c.title)}</option>`).join('');
+function openNoteForm(id){
+  const n = id ? db.notes.find(x=>x.id===id) : null;
+  const caseOptions = db.cases.map(c=>`<option value="${c.id}" ${n&&n.caseId===c.id?'selected':''}>${esc(c.title)}</option>`).join('');
   openModal(`
-    <h3>ملاحظة جديدة</h3>
+    <h3>${n?'تعديل الملاحظة':'ملاحظة جديدة'}</h3>
     <div class="field"><label>القضية (اختياري — اتركها فارغة لملاحظة عامة)</label><select id="f_ncase"><option value="">— ملاحظة عامة بدون قضية —</option>${caseOptions}</select></div>
-    <div class="field"><label>نص الملاحظة</label><textarea id="f_ntext" placeholder="اكتب الملاحظة هنا..."></textarea></div>
+    <div class="field"><label>نص الملاحظة</label><textarea id="f_ntext" placeholder="اكتب الملاحظة هنا...">${n?esc(n.text):''}</textarea></div>
     <div class="modal-actions">
-      <button class="btn btn-gold btn-block" onclick="saveNote()">حفظ</button>
+      <button class="btn btn-gold btn-block" onclick="saveNote(${n?`'${n.id}'`:'null'})">حفظ</button>
+      ${n?`<button class="btn btn-ghost" onclick="deleteNote('${n.id}')">حذف</button>`:''}
       <button class="btn btn-ghost" onclick="closeModal()">إلغاء</button>
     </div>
   `);
 }
-function saveNote(){
+function saveNote(id){
   const text = document.getElementById('f_ntext').value.trim();
   if(!text){ toast('الرجاء كتابة نص الملاحظة'); return; }
-  db.notes.push({id:uid(), caseId:document.getElementById('f_ncase').value||null, text, date:new Date().toISOString().slice(0,10)});
-  saveDB(); toast('تمت إضافة الملاحظة'); closeModal(); render();
+  const data = { caseId: document.getElementById('f_ncase').value||null, text };
+  if(id){ Object.assign(db.notes.find(n=>n.id===id), data); toast('تم تحديث الملاحظة'); }
+  else{ data.id = uid(); data.date = new Date().toISOString().slice(0,10); db.notes.push(data); toast('تمت إضافة الملاحظة'); }
+  saveDB(); closeModal(); render();
 }
 function deleteNote(id){
   confirmDelete('سيتم نقل هذه الملاحظة إلى سلة المحذوفات، ويمكن استعادتها خلال 15 يومًا. هل أنت متأكد؟', ()=>{
