@@ -336,6 +336,7 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
 .file-card .next-hearing{margin-top:10px; padding-top:10px; border-top:1px dashed var(--line); font-size:12px; display:flex; align-items:center; gap:6px;}
 .file-card .next-hearing svg{width:13px; height:13px;}
 .tag{display:inline-flex; align-items:center; gap:4px; font-size:10.5px; padding:3px 10px; border-radius:20px; border:1px solid var(--line); color:var(--text-dim);}
+.hijri-sub{color:var(--text-faint); font-size:.92em; font-weight:400;}
 
 /* ---------- lists ---------- */
 .row-list{display:flex; flex-direction:column; gap:8px;}
@@ -610,6 +611,18 @@ function fmtDate(d){
   const dt = new Date(d+'T00:00:00');
   return dt.toLocaleDateString('ar-SA-u-nu-latn',{year:'numeric',month:'short',day:'numeric'});
 }
+function fmtHijriShort(iso){
+  if(!iso) return '';
+  try{
+    const h = gregorianISOToHijri(iso);
+    return h.day+' '+HIJRI_MONTHS[h.month-1]+' '+h.year+'هـ';
+  }catch(e){ return ''; }
+}
+function fmtDateBoth(d){
+  if(!d) return '—';
+  const hijri = fmtHijriShort(d);
+  return fmtDate(d) + (hijri ? ' <span class="hijri-sub">('+hijri+')</span>' : '');
+}
 function fmtTime(t){
   if(!t) return '';
   const [h,m] = t.split(':').map(Number);
@@ -801,13 +814,20 @@ function runPendingAction(){
 /* ============ REMINDERS ============ */
 function getReminders(){
   const items = [];
-  db.cases.forEach(c=>{ if(c.nextHearing) items.push({key:'hearing_'+c.id+'_'+c.nextHearing, type:'hearing', title:c.title, date:c.nextHearing, time:c.nextHearingTime||'', days:daysUntil(c.nextHearing), meta:c.court||'جلسة', icon:'briefcase'}); });
-  db.tasks.forEach(t=>{ if(!t.done && t.due) items.push({key:'task_'+t.id+'_'+t.due, type:'task', title:t.title, date:t.due, days:daysUntil(t.due), meta:t.caseId?caseTitle(t.caseId):'مهمة', icon:'check_sq'}); });
-  db.agencies.forEach(a=>{ if(a.expiryDate) items.push({key:'agency_'+a.id+'_'+a.expiryDate, type:'agency', title:agencyLabel(a), date:a.expiryDate, days:daysUntil(a.expiryDate), meta:clientName(a.clientId), icon:'scroll'}); });
-  db.visits.forEach(v=>{ if(v.status!=='done' && v.date) items.push({key:'visit_'+v.id+'_'+v.date, type:'visit', title:v.title, date:v.date, days:daysUntil(v.date), meta:v.location||'مراجعة ميدانية', icon:'pin'}); });
+  db.cases.forEach(c=>{ if(c.nextHearing) items.push({key:'hearing_'+c.id+'_'+c.nextHearing, id:c.id, type:'hearing', title:c.title, date:c.nextHearing, time:c.nextHearingTime||'', days:daysUntil(c.nextHearing), meta:c.court||'جلسة', icon:'briefcase'}); });
+  db.tasks.forEach(t=>{ if(!t.done && t.due) items.push({key:'task_'+t.id+'_'+t.due, id:t.id, type:'task', title:t.title, date:t.due, days:daysUntil(t.due), meta:t.caseId?caseTitle(t.caseId):'مهمة', icon:'check_sq'}); });
+  db.agencies.forEach(a=>{ if(a.expiryDate) items.push({key:'agency_'+a.id+'_'+a.expiryDate, id:a.id, type:'agency', title:agencyLabel(a), date:a.expiryDate, days:daysUntil(a.expiryDate), meta:clientName(a.clientId), icon:'scroll'}); });
+  db.visits.forEach(v=>{ if(v.status!=='done' && v.date) items.push({key:'visit_'+v.id+'_'+v.date, id:v.id, type:'visit', title:v.title, date:v.date, days:daysUntil(v.date), meta:v.location||'مراجعة ميدانية', icon:'pin'}); });
   return items.sort((a,b)=>a.days-b.days);
 }
 function dotColor(days){ if(days<0) return 'var(--danger)'; if(days<=3) return 'var(--gold)'; return 'var(--ok)'; }
+function goToReminder(type, id){
+  bellOpen = false;
+  if(type==='hearing'){ goto('cases'); setTimeout(()=>openCaseForm(id),0); }
+  else if(type==='task'){ goto('tasks'); setTimeout(()=>openTaskForm(id),0); }
+  else if(type==='agency'){ goto('agencies'); setTimeout(()=>openAgencyForm(id),0); }
+  else if(type==='visit'){ goto('visits'); setTimeout(()=>openVisitForm(id),0); }
+}
 
 let bellOpen = false;
 function dismissedKeys(){ return (db.settings && db.settings.dismissedReminders) || []; }
@@ -820,7 +840,7 @@ function renderBell(){
     <button class="bell-btn" id="bellBtn">${ic('bell')}${rem.length?`<span class="bell-badge">${rem.length}</span>`:''}</button>
     <div class="bell-panel ${bellOpen?'open':''}" id="bellPanel">
       ${rem.length ? `<div class="bell-clear-row"><button class="bell-clear-btn" onclick="event.stopPropagation(); clearAllReminders();">${ic('trash')}مسح كل التنبيهات</button></div>` : ''}
-      ${rem.length ? rem.map(r=>`<div class="bell-item"><span class="dot" style="background:${dotColor(r.days)}"></span><div class="bi-main"><div class="t">${esc(r.title)}</div><div class="m">${esc(r.meta)} · ${fmtDate(r.date)}${r.time?' '+fmtTime(r.time):''} ${r.days<0?'(فائت)':r.days===0?'(اليوم)':'(بعد '+r.days+' يوم)'}</div></div><button class="bell-x" onclick="event.stopPropagation(); dismissReminder('${r.key}');" title="إخفاء هذا التنبيه">${ic('x')}</button></div>`).join('') : `<div class="empty" style="padding:20px;">${ic('bell')}<p>لا توجد تنبيهات قريبة</p></div>`}
+      ${rem.length ? rem.map(r=>`<div class="bell-item" style="cursor:pointer;" onclick="goToReminder('${r.type}','${r.id}')"><span class="dot" style="background:${dotColor(r.days)}"></span><div class="bi-main"><div class="t">${esc(r.title)}</div><div class="m">${esc(r.meta)} · ${fmtDateBoth(r.date)}${r.time?' '+fmtTime(r.time):''} ${r.days<0?'(فائت)':r.days===0?'(اليوم)':'(بعد '+r.days+' يوم)'}</div></div><button class="bell-x" onclick="event.stopPropagation(); dismissReminder('${r.key}');" title="إخفاء هذا التنبيه">${ic('x')}</button></div>`).join('') : `<div class="empty" style="padding:20px;">${ic('bell')}<p>لا توجد تنبيهات قريبة</p></div>`}
     </div>`;
   document.getElementById('bellBtn').onclick = (e)=>{ e.stopPropagation(); bellOpen=!bellOpen; renderBell(); };
 }
@@ -855,7 +875,7 @@ function checkBrowserNotifications(){
   urgent.forEach(r=>{
     try{
       new Notification('تذكير: '+esc(r.title).replace(/&amp;/g,'&'), {
-        body: r.meta+' — '+fmtDate(r.date)+(r.time?' '+fmtTime(r.time):'')+(r.days<0?' (فائت)':r.days===0?' (اليوم)':' (بعد '+r.days+' يوم)'),
+        body: r.meta+' — '+fmtDate(r.date)+(fmtHijriShort(r.date)?' ('+fmtHijriShort(r.date)+')':'')+(r.time?' '+fmtTime(r.time):'')+(r.days<0?' (فائت)':r.days===0?' (اليوم)':' (بعد '+r.days+' يوم)'),
         icon: iconLink?iconLink.href:undefined,
         tag: r.key
       });
@@ -939,9 +959,9 @@ function viewDashboard(){
     <div>
       <div class="panel">
         <h3><span class="titlewrap">${ic('bell')}التذكيرات القريبة</span><span class="count">أقرب ١٤ يومًا</span></h3>
-        ${rem.length ? `<div class="row-list">${rem.map(r=>`<div class="row-item ${r.days<0?'overdue':r.days<=3?'soon':''}">
+        ${rem.length ? `<div class="row-list">${rem.map(r=>`<div class="row-item ${r.days<0?'overdue':r.days<=3?'soon':''}" style="cursor:pointer;" onclick="goToReminder('${r.type}','${r.id}')">
           <div class="main"><b>${esc(r.title)}</b><span class="meta">${esc(r.meta)}</span></div>
-          <div class="meta">${fmtDate(r.date)} ${r.days<0?'(فائتة)':r.days===0?'(اليوم)':'(بعد '+r.days+' يوم)'}</div>
+          <div class="meta">${fmtDateBoth(r.date)} ${r.days<0?'(فائتة)':r.days===0?'(اليوم)':'(بعد '+r.days+' يوم)'}</div>
         </div>`).join('')}</div>` : emptyState('لا توجد تذكيرات قريبة — كل شيء تحت السيطرة','check_sq')}
       </div>
 
@@ -949,7 +969,7 @@ function viewDashboard(){
         <h3><span class="titlewrap">${ic('calendar')}الجلسات القادمة</span></h3>
         ${(()=>{ const s=[...db.cases.filter(c=>c.nextHearing)].sort((a,b)=>a.nextHearing.localeCompare(b.nextHearing)).slice(0,5);
           return s.length ? `<div class="row-list">${s.map(c=>{ const d=daysUntil(c.nextHearing); const cls=d<0?'overdue':(d<=3?'soon':'');
-            return `<div class="row-item ${cls}"><div class="main"><b>${esc(c.title)}</b><span class="meta">${esc(c.court||'—')} · ${esc(clientName(c.clientId))}</span></div><div class="meta">${fmtDate(c.nextHearing)}${c.nextHearingTime?' - '+fmtTime(c.nextHearingTime):''}</div></div>`; }).join('')}</div>` : emptyState('لا توجد جلسات مجدولة قادمة','calendar'); })()}
+            return `<div class="row-item ${cls}" style="cursor:pointer;" onclick="goto('cases'); setTimeout(()=>openCaseForm('${c.id}'),0)"><div class="main"><b>${esc(c.title)}</b><span class="meta">${esc(c.court||'—')} · ${esc(clientName(c.clientId))}</span></div><div class="meta">${fmtDateBoth(c.nextHearing)}${c.nextHearingTime?' - '+fmtTime(c.nextHearingTime):''}</div></div>`; }).join('')}</div>` : emptyState('لا توجد جلسات مجدولة قادمة','calendar'); })()}
       </div>
     </div>
 
@@ -970,7 +990,7 @@ function viewDashboard(){
       <div class="panel">
         <h3><span class="titlewrap">${ic('pin')}آخر المراجعات الميدانية</span></h3>
         ${(()=>{ const v=[...db.visits].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,4);
-          return v.length ? `<div class="row-list">${v.map(x=>`<div class="row-item"><div class="main"><b>${esc(x.title)}</b><span class="meta">${esc(x.location||'—')}</span></div><div class="meta">${fmtDate(x.date)}</div></div>`).join('')}</div>` : emptyState('لا توجد مراجعات مسجّلة بعد','pin'); })()}
+          return v.length ? `<div class="row-list">${v.map(x=>`<div class="row-item" style="cursor:pointer;" onclick="goto('visits'); setTimeout(()=>openVisitForm('${x.id}'),0)"><div class="main"><b>${esc(x.title)}</b><span class="meta">${esc(x.location||'—')}</span></div><div class="meta">${fmtDateBoth(x.date)}</div></div>`).join('')}</div>` : emptyState('لا توجد مراجعات مسجّلة بعد','pin'); })()}
       </div>
     </div>
   </div>
@@ -1009,7 +1029,7 @@ function caseCardHtml(c){
       <div><b>المحكمة:</b> ${esc(c.court||'—')}</div>
     </div>
     <span class="tag">${CASE_STATUS[c.status]}</span>
-    ${c.nextHearing ? `<div class="next-hearing">${ic('calendar')}الجلسة القادمة: ${fmtDate(c.nextHearing)}${c.nextHearingTime?' - '+fmtTime(c.nextHearingTime):''} ${d<0?'(فائتة)':d<=3?'(قريبة)':''}</div>` : ''}
+    ${c.nextHearing ? `<div class="next-hearing">${ic('calendar')}الجلسة القادمة: ${fmtDateBoth(c.nextHearing)}${c.nextHearingTime?' - '+fmtTime(c.nextHearingTime):''} ${d<0?'(فائتة)':d<=3?'(قريبة)':''}</div>` : ''}
   </div>`;
 }
 function openCaseForm(id){
@@ -1157,7 +1177,7 @@ function viewClientDetail(){
       <div class="panel">
         <h3><span class="titlewrap">${ic('scroll')}الوكالات</span><span class="count">${agencies.length}</span></h3>
         ${agencies.length ? `<div class="row-list">${agencies.map(a=>{ const d=daysUntil(a.expiryDate); const cls=d!==null&&d<0?'overdue':(d!==null&&d<=14?'soon':'');
-          return `<div class="row-item ${cls}"><div class="main"><b>${esc(agencyLabel(a))}</b><span class="meta">${esc(a.number||'—')}</span></div><div class="meta">${a.expiryDate?'ينتهي '+fmtDate(a.expiryDate):'—'}</div></div>`; }).join('')}</div>` : emptyState('لا توجد وكالات مسجّلة لهذا العميل','scroll')}
+          return `<div class="row-item ${cls}"><div class="main"><b>${esc(agencyLabel(a))}</b><span class="meta">${esc(a.number||'—')}</span></div><div class="meta">${a.expiryDate?'ينتهي '+fmtDateBoth(a.expiryDate):'—'}</div></div>`; }).join('')}</div>` : emptyState('لا توجد وكالات مسجّلة لهذا العميل','scroll')}
       </div>
     </div>
 
@@ -1174,7 +1194,7 @@ function viewClientDetail(){
         ${files.length ? files.map(f=>`
           <div class="file-chip">
             <div class="fico">${ic(f.mime&&f.mime.startsWith('image')?'image':'doc')}</div>
-            <div class="fmain"><b>${esc(f.fileName)}</b><span>${f.caseId?esc(caseTitle(f.caseId))+' · ':''}${fileSizeLabel(f.size)} · ${fmtDate(f.date)}</span></div>
+            <div class="fmain"><b>${esc(f.fileName)}</b><span>${f.caseId?esc(caseTitle(f.caseId))+' · ':''}${fileSizeLabel(f.size)} · ${fmtDateBoth(f.date)}</span></div>
             <button class="icon-btn" onclick="downloadClientFile('${f.id}','${esc(f.fileName)}')" title="تنزيل">${ic('download')}</button>
             <button class="icon-btn del" onclick="deleteClientFile('${cl.id}','${f.id}')" title="حذف">${ic('trash')}</button>
           </div>`).join('') : `<div class="empty" style="padding:20px;">${ic('doc')}<p>لا توجد ملفات مرفوعة بعد</p></div>`}
@@ -1241,7 +1261,7 @@ function agencyRowHtml(a){
   return `<div class="row-item ${cls}">
     <div class="main"><b>${esc(agencyLabel(a))}</b><span class="meta">${a.caseId?esc(caseTitle(a.caseId)):'بدون قضية مرتبطة'}</span></div>
     <div style="display:flex; align-items:center; gap:10px;">
-      <div class="meta">${a.expiryDate?fmtDate(a.expiryDate):'بدون تاريخ انتهاء'} ${d!==null?(d<0?'(منتهية)':d<=14?'(قريبة)':''):''}</div>
+      <div class="meta">${a.expiryDate?fmtDateBoth(a.expiryDate):'بدون تاريخ انتهاء'} ${d!==null?(d<0?'(منتهية)':d<=14?'(قريبة)':''):''}</div>
       <div class="actions">
         <button class="icon-btn" onclick="openAgencyForm('${a.id}')" title="تعديل">${ic('edit')}</button>
         <button class="icon-btn del" onclick="deleteAgency('${a.id}')" title="حذف">${ic('trash')}</button>
@@ -1311,7 +1331,7 @@ function rowTaskHtml(t){
       <div class="task-check ${t.done?'done':''}" onclick="toggleTask('${t.id}')">${t.done?ic('check'):''}</div>
       <div class="main">
         <b style="${t.done?'text-decoration:line-through; color:var(--text-faint);':''}">${esc(t.title)}</b>
-        <span class="meta">${t.caseId?esc(caseTitle(t.caseId))+' · ':''}${t.due?fmtDate(t.due):'بدون تاريخ استحقاق'}${d!==null && !t.done ? (d<0?' (متأخرة)':d===0?' (اليوم)':'') : ''}</span>
+        <span class="meta">${t.caseId?esc(caseTitle(t.caseId))+' · ':''}${t.due?fmtDateBoth(t.due):'بدون تاريخ استحقاق'}${d!==null && !t.done ? (d<0?' (متأخرة)':d===0?' (اليوم)':'') : ''}</span>
       </div>
     </div>
     <div class="actions">
@@ -1366,7 +1386,7 @@ function viewNotes(){
 }
 function noteRowHtml(n){
   return `<div class="row-item" style="align-items:flex-start;">
-    <div class="main"><b>${n.caseId?esc(caseTitle(n.caseId)):'ملاحظة عامة'}</b><span class="meta">${fmtDate(n.date)}</span><div style="margin-top:6px; font-size:13px; color:var(--text-dim); line-height:1.8;">${esc(n.text)}</div></div>
+    <div class="main"><b>${n.caseId?esc(caseTitle(n.caseId)):'ملاحظة عامة'}</b><span class="meta">${fmtDateBoth(n.date)}</span><div style="margin-top:6px; font-size:13px; color:var(--text-dim); line-height:1.8;">${esc(n.text)}</div></div>
     <div class="actions"><button class="icon-btn del" onclick="deleteNote('${n.id}')" title="حذف">${ic('trash')}</button></div>
   </div>`;
 }
@@ -1412,7 +1432,7 @@ function visitRowHtml(v){
     <div class="main"><b>${esc(v.title)}</b><span class="meta">${esc(v.location||'—')} ${v.caseId?'· '+esc(caseTitle(v.caseId)):''}</span></div>
     <div style="display:flex; align-items:center; gap:10px;">
       <span class="tag">${VISIT_STATUS[v.status]||'—'}</span>
-      <div class="meta">${fmtDate(v.date)}</div>
+      <div class="meta">${fmtDateBoth(v.date)}</div>
       <div class="actions">
         <button class="icon-btn" onclick="openVisitForm('${v.id}')" title="تعديل">${ic('edit')}</button>
         <button class="icon-btn del" onclick="deleteVisit('${v.id}')" title="حذف">${ic('trash')}</button>
@@ -1474,7 +1494,7 @@ function policeRowHtml(p){
     <div class="main"><b>${esc(p.title)}</b><span class="meta">${esc(p.authority||'—')} ${p.number?'· رقم المحضر: '+esc(p.number):''} ${p.clientId?'· '+esc(clientName(p.clientId)):''}</span></div>
     <div style="display:flex; align-items:center; gap:10px;">
       <span class="tag">${POLICE_STATUS[p.status]||'—'}</span>
-      <div class="meta">${fmtDate(p.date)}</div>
+      <div class="meta">${fmtDateBoth(p.date)}</div>
       <div class="actions">
         <button class="icon-btn" onclick="openPoliceForm('${p.id}')" title="تعديل">${ic('edit')}</button>
         <button class="icon-btn del" onclick="deletePolice('${p.id}')" title="حذف">${ic('trash')}</button>
