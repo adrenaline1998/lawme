@@ -242,11 +242,19 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
   padding:8px; display:none; z-index:60;
 }
 .bell-panel.open{display:block;}
-.bell-item{display:flex; align-items:flex-start; gap:10px; padding:10px 10px; border-radius:8px;}
+.bell-clear-row{display:flex; justify-content:flex-end; padding:2px 4px 8px; border-bottom:1px solid var(--line); margin-bottom:6px;}
+.bell-clear-btn{display:flex; align-items:center; gap:5px; background:transparent; border:none; color:var(--text-faint); font-size:11px; font-weight:600;}
+.bell-clear-btn svg{width:12px; height:12px;}
+.bell-clear-btn:hover{color:var(--danger-light);}
+.bell-item{display:flex; align-items:flex-start; gap:8px; padding:10px 10px; border-radius:8px;}
 .bell-item:hover{background:var(--surface2);}
+.bell-item .bi-main{flex:1; min-width:0;}
 .bell-item .dot{width:8px; height:8px; border-radius:50%; margin-top:5px; flex-shrink:0;}
 .bell-item .t{font-size:12.5px; font-weight:600;}
 .bell-item .m{font-size:11px; color:var(--text-faint); margin-top:2px;}
+.bell-x{background:transparent; border:none; color:var(--text-faint); width:20px; height:20px; border-radius:5px; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+.bell-x svg{width:11px; height:11px;}
+.bell-x:hover{background:var(--danger-dim); color:var(--danger-light);}
 
 /* ---------- alert banner (agency expiry) ---------- */
 .alert-banner{
@@ -376,7 +384,8 @@ main{flex:1; min-width:0; padding:26px 32px 60px; max-width:1240px;}
 /* ---------- forms ---------- */
 .field{margin-bottom:14px;}
 .field label{display:block; font-size:12px; color:var(--text-dim); margin-bottom:6px; font-weight:600;}
-.field input, .field select, .field textarea{width:100%; background:var(--surface2); border:1px solid var(--line); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; font-family:inherit;}
+.field input, .field select, .field textarea{width:100%; background:var(--surface2); border:1px solid var(--line); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; font-family:inherit; unicode-bidi:plaintext;}
+.field input[type="date"], .field input[type="time"], .field input[type="number"]{direction:ltr; text-align:right;}
 .field input:focus, .field select:focus, .field textarea:focus{outline:2px solid var(--gold); border-color:var(--gold);}
 .field textarea{resize:vertical; min-height:70px;}
 .field-row{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
@@ -592,7 +601,7 @@ function initFirebase(){
     fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
   }catch(e){ console.error('Firebase init failed', e); }
 }
-function emptyDB(){ return {clients:[], cases:[], tasks:[], notes:[], agencies:[], visits:[], policeCases:[], settings:{apiKey:''}}; }
+function emptyDB(){ return {clients:[], cases:[], tasks:[], notes:[], agencies:[], visits:[], policeCases:[], settings:{apiKey:'', dismissedReminders:[]}}; }
 function normalizeDB(d){
   d = Object.assign(emptyDB(), d||{});
   d.clients.forEach(c=>{ c.files = c.files||[]; });
@@ -618,6 +627,13 @@ function fmtDate(d){
   if(!d) return '—';
   const dt = new Date(d+'T00:00:00');
   return dt.toLocaleDateString('ar-SA-u-nu-latn',{year:'numeric',month:'short',day:'numeric'});
+}
+function fmtTime(t){
+  if(!t) return '';
+  const [h,m] = t.split(':').map(Number);
+  const period = h<12 ? 'ص' : 'م';
+  const h12 = ((h%12)||12);
+  return h12+':'+String(m).padStart(2,'0')+' '+period;
 }
 function daysUntil(d){
   if(!d) return null;
@@ -672,7 +688,10 @@ function gregorianISOToHijri(iso){
   return {year, month, day};
 }
 /* ---- reusable date field with Hijri/Gregorian toggle ---- */
+const HIJRI_MONTHS = ['محرم','صفر','ربيع الأول','ربيع الآخر','جمادى الأولى','جمادى الآخرة','رجب','شعبان','رمضان','شوال','ذو القعدة','ذو الحجة'];
 function dateFieldHtml(id, iso, label){
+  const dayOptions = Array.from({length:30},(_,i)=>i+1).map(d=>`<option value="${d}">${d}</option>`).join('');
+  const monthOptions = HIJRI_MONTHS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
   return `<div class="field">
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
       <label style="margin-bottom:0;">${label}</label>
@@ -683,9 +702,9 @@ function dateFieldHtml(id, iso, label){
     </div>
     <input type="date" id="${id}_g" value="${iso||''}" style="margin-top:6px;">
     <div id="${id}_h" class="hijri-row" style="display:none; margin-top:6px;">
-      <input type="number" id="${id}_hd" placeholder="يوم" min="1" max="30">
-      <input type="number" id="${id}_hm" placeholder="شهر" min="1" max="12">
-      <input type="number" id="${id}_hy" placeholder="سنة هـ">
+      <select id="${id}_hd"><option value="">يوم</option>${dayOptions}</select>
+      <select id="${id}_hm"><option value="">شهر</option>${monthOptions}</select>
+      <input type="number" id="${id}_hy" placeholder="سنة هـ" style="flex:1;">
     </div>
   </div>`;
 }
@@ -788,27 +807,69 @@ function runPendingAction(){
 /* ============ REMINDERS ============ */
 function getReminders(){
   const items = [];
-  db.cases.forEach(c=>{ if(c.nextHearing) items.push({type:'hearing', title:c.title, date:c.nextHearing, days:daysUntil(c.nextHearing), meta:c.court||'جلسة', icon:'briefcase'}); });
-  db.tasks.forEach(t=>{ if(!t.done && t.due) items.push({type:'task', title:t.title, date:t.due, days:daysUntil(t.due), meta:t.caseId?caseTitle(t.caseId):'مهمة', icon:'check_sq'}); });
-  db.agencies.forEach(a=>{ if(a.expiryDate) items.push({type:'agency', title:agencyLabel(a), date:a.expiryDate, days:daysUntil(a.expiryDate), meta:clientName(a.clientId), icon:'scroll'}); });
-  db.visits.forEach(v=>{ if(v.status!=='done' && v.date) items.push({type:'visit', title:v.title, date:v.date, days:daysUntil(v.date), meta:v.location||'مراجعة ميدانية', icon:'pin'}); });
+  db.cases.forEach(c=>{ if(c.nextHearing) items.push({key:'hearing_'+c.id+'_'+c.nextHearing, type:'hearing', title:c.title, date:c.nextHearing, time:c.nextHearingTime||'', days:daysUntil(c.nextHearing), meta:c.court||'جلسة', icon:'briefcase'}); });
+  db.tasks.forEach(t=>{ if(!t.done && t.due) items.push({key:'task_'+t.id+'_'+t.due, type:'task', title:t.title, date:t.due, days:daysUntil(t.due), meta:t.caseId?caseTitle(t.caseId):'مهمة', icon:'check_sq'}); });
+  db.agencies.forEach(a=>{ if(a.expiryDate) items.push({key:'agency_'+a.id+'_'+a.expiryDate, type:'agency', title:agencyLabel(a), date:a.expiryDate, days:daysUntil(a.expiryDate), meta:clientName(a.clientId), icon:'scroll'}); });
+  db.visits.forEach(v=>{ if(v.status!=='done' && v.date) items.push({key:'visit_'+v.id+'_'+v.date, type:'visit', title:v.title, date:v.date, days:daysUntil(v.date), meta:v.location||'مراجعة ميدانية', icon:'pin'}); });
   return items.sort((a,b)=>a.days-b.days);
 }
 function dotColor(days){ if(days<0) return 'var(--danger)'; if(days<=3) return 'var(--gold)'; return 'var(--ok)'; }
 
 let bellOpen = false;
+function dismissedKeys(){ return (db.settings && db.settings.dismissedReminders) || []; }
 function renderBell(){
-  const rem = getReminders().filter(r=>r.days<=7);
+  const dismissed = dismissedKeys();
+  const rem = getReminders().filter(r=>r.days<=7 && !dismissed.includes(r.key));
   const wrap = document.getElementById('bellWrap');
   if(!wrap) return;
   wrap.innerHTML = `
     <button class="bell-btn" id="bellBtn">${ic('bell')}${rem.length?`<span class="bell-badge">${rem.length}</span>`:''}</button>
     <div class="bell-panel ${bellOpen?'open':''}" id="bellPanel">
-      ${rem.length ? rem.map(r=>`<div class="bell-item"><span class="dot" style="background:${dotColor(r.days)}"></span><div><div class="t">${esc(r.title)}</div><div class="m">${esc(r.meta)} · ${fmtDate(r.date)} ${r.days<0?'(فائت)':r.days===0?'(اليوم)':'(بعد '+r.days+' يوم)'}</div></div></div>`).join('') : `<div class="empty" style="padding:20px;">${ic('bell')}<p>لا توجد تنبيهات قريبة</p></div>`}
+      ${rem.length ? `<div class="bell-clear-row"><button class="bell-clear-btn" onclick="event.stopPropagation(); clearAllReminders();">${ic('trash')}مسح كل التنبيهات</button></div>` : ''}
+      ${rem.length ? rem.map(r=>`<div class="bell-item"><span class="dot" style="background:${dotColor(r.days)}"></span><div class="bi-main"><div class="t">${esc(r.title)}</div><div class="m">${esc(r.meta)} · ${fmtDate(r.date)}${r.time?' '+fmtTime(r.time):''} ${r.days<0?'(فائت)':r.days===0?'(اليوم)':'(بعد '+r.days+' يوم)'}</div></div><button class="bell-x" onclick="event.stopPropagation(); dismissReminder('${r.key}');" title="إخفاء هذا التنبيه">${ic('x')}</button></div>`).join('') : `<div class="empty" style="padding:20px;">${ic('bell')}<p>لا توجد تنبيهات قريبة</p></div>`}
     </div>`;
   document.getElementById('bellBtn').onclick = (e)=>{ e.stopPropagation(); bellOpen=!bellOpen; renderBell(); };
 }
+function dismissReminder(key){
+  db.settings.dismissedReminders = dismissedKeys();
+  if(!db.settings.dismissedReminders.includes(key)) db.settings.dismissedReminders.push(key);
+  saveDB(); renderBell();
+}
+function clearAllReminders(){
+  const shownKeys = getReminders().filter(r=>r.days<=7).map(r=>r.key);
+  const merged = new Set([...dismissedKeys(), ...shownKeys]);
+  db.settings.dismissedReminders = Array.from(merged);
+  saveDB(); renderBell();
+}
 document.addEventListener('click', ()=>{ if(bellOpen){ bellOpen=false; renderBell(); } });
+
+/* ---- Browser notifications (desktop + mobile, while the site/tab is open) ---- */
+function enableNotifications(){
+  if(!('Notification' in window)){ toast('متصفحك لا يدعم إشعارات الويب'); return; }
+  Notification.requestPermission().then(perm=>{
+    if(perm==='granted'){ toast('تم تفعيل إشعارات المتصفح'); checkBrowserNotifications(); }
+    else{ toast('لم يتم منح إذن الإشعارات'); }
+  });
+}
+function checkBrowserNotifications(){
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  const dismissed = dismissedKeys();
+  let notifiedSet;
+  try{ notifiedSet = new Set(JSON.parse(sessionStorage.getItem('maqri_notified')||'[]')); }catch(e){ notifiedSet = new Set(); }
+  const iconLink = document.querySelector('link[rel="icon"]');
+  const urgent = getReminders().filter(r=>r.days<=3 && !dismissed.includes(r.key) && !notifiedSet.has(r.key));
+  urgent.forEach(r=>{
+    try{
+      new Notification('تذكير: '+esc(r.title).replace(/&amp;/g,'&'), {
+        body: r.meta+' — '+fmtDate(r.date)+(r.time?' '+fmtTime(r.time):'')+(r.days<0?' (فائت)':r.days===0?' (اليوم)':' (بعد '+r.days+' يوم)'),
+        icon: iconLink?iconLink.href:undefined,
+        tag: r.key
+      });
+    }catch(e){}
+    notifiedSet.add(r.key);
+  });
+  sessionStorage.setItem('maqri_notified', JSON.stringify(Array.from(notifiedSet)));
+}
 
 let bannerDismissed = false;
 function agencyAlertBanner(){
@@ -894,7 +955,7 @@ function viewDashboard(){
         <h3><span class="titlewrap">${ic('calendar')}الجلسات القادمة</span></h3>
         ${(()=>{ const s=[...db.cases.filter(c=>c.nextHearing)].sort((a,b)=>a.nextHearing.localeCompare(b.nextHearing)).slice(0,5);
           return s.length ? `<div class="row-list">${s.map(c=>{ const d=daysUntil(c.nextHearing); const cls=d<0?'overdue':(d<=3?'soon':'');
-            return `<div class="row-item ${cls}"><div class="main"><b>${esc(c.title)}</b><span class="meta">${esc(c.court||'—')} · ${esc(clientName(c.clientId))}</span></div><div class="meta">${fmtDate(c.nextHearing)}</div></div>`; }).join('')}</div>` : emptyState('لا توجد جلسات مجدولة قادمة','calendar'); })()}
+            return `<div class="row-item ${cls}"><div class="main"><b>${esc(c.title)}</b><span class="meta">${esc(c.court||'—')} · ${esc(clientName(c.clientId))}</span></div><div class="meta">${fmtDate(c.nextHearing)}${c.nextHearingTime?' - '+fmtTime(c.nextHearingTime):''}</div></div>`; }).join('')}</div>` : emptyState('لا توجد جلسات مجدولة قادمة','calendar'); })()}
       </div>
     </div>
 
@@ -954,7 +1015,7 @@ function caseCardHtml(c){
       <div><b>المحكمة:</b> ${esc(c.court||'—')}</div>
     </div>
     <span class="tag">${CASE_STATUS[c.status]}</span>
-    ${c.nextHearing ? `<div class="next-hearing">${ic('calendar')}الجلسة القادمة: ${fmtDate(c.nextHearing)} ${d<0?'(فائتة)':d<=3?'(قريبة)':''}</div>` : ''}
+    ${c.nextHearing ? `<div class="next-hearing">${ic('calendar')}الجلسة القادمة: ${fmtDate(c.nextHearing)}${c.nextHearingTime?' - '+fmtTime(c.nextHearingTime):''} ${d<0?'(فائتة)':d<=3?'(قريبة)':''}</div>` : ''}
   </div>`;
 }
 function openCaseForm(id){
@@ -973,6 +1034,7 @@ function openCaseForm(id){
       <div class="field"><label>المحكمة</label><input id="f_court" value="${c?esc(c.court||''):''}" placeholder="مثال: المحكمة التجارية بالرياض"></div>
     </div>
     ${dateFieldHtml('f_hearing', c?c.nextHearing:'', 'تاريخ الجلسة القادمة')}
+    <div class="field"><label>وقت الجلسة (اختياري)</label><input type="time" id="f_hearingTime" value="${c?c.nextHearingTime||'':''}"></div>
     <div class="field"><label>ملاحظات مختصرة</label><textarea id="f_desc" placeholder="وصف موجز للقضية...">${c?esc(c.desc||''):''}</textarea></div>
     <div class="modal-actions">
       <button class="btn btn-gold btn-block" onclick="saveCase(${c?`'${c.id}'`:'null'})">حفظ</button>
@@ -988,7 +1050,7 @@ function saveCase(id){
   const data = {
     title, type: document.getElementById('f_type').value, status: document.getElementById('f_status').value,
     clientId: document.getElementById('f_client').value, caseNo: document.getElementById('f_caseNo').value.trim(),
-    court: document.getElementById('f_court').value.trim(), nextHearing: getDateValue('f_hearing'),
+    court: document.getElementById('f_court').value.trim(), nextHearing: getDateValue('f_hearing'), nextHearingTime: document.getElementById('f_hearingTime').value,
     desc: document.getElementById('f_desc').value.trim(),
   };
   if(id){ Object.assign(db.cases.find(c=>c.id===id), data); toast('تم تحديث القضية'); }
@@ -1594,7 +1656,10 @@ async function sendAI(){
     chatHistory.push({role:'ai', text});
   }catch(err){
     document.getElementById(typingId)?.remove();
-    chatHistory.push({role:'err', text:'تعذّر إتمام الطلب: '+(err&&err.message?err.message:'خطأ غير معروف')+'. تأكد من صحة مفتاح API ورصيده، أو استخدم claude.ai مباشرة كبديل مجاني وموثوق.'});
+    const msg = err&&err.message?err.message:'خطأ غير معروف';
+    let hint = 'تحقق من صحة مفتاح API.';
+    if(msg.includes('credit') || msg.includes('balance')) hint = 'رصيد مفتاح API لديك منتهٍ — أضف رصيدًا من console.anthropic.com (Settings → Billing) وأعد المحاولة هنا مباشرة.';
+    chatHistory.push({role:'err', text:'تعذّر إتمام الطلب: '+msg+'. '+hint});
   }
   renderChatLog();
 }
@@ -1610,6 +1675,11 @@ function viewSettings(){
       <div class="field" style="margin-bottom:0;"><label>الاسم</label><input id="displayNameInput" value="${esc(db.settings.displayName||'')}"></div>
       <button class="btn btn-ghost" onclick="saveDisplayName()">${ic('edit')}حفظ الاسم</button>
     </div>
+  </div>
+  <div class="panel">
+    <h3><span class="titlewrap">${ic('bell')}الإشعارات</span></h3>
+    <p style="font-size:13px; color:var(--text-dim); margin-bottom:12px; line-height:1.9;">فعّل إشعارات المتصفح لتنبيهك بالجلسات والمهام والوكالات القريبة (خلال 3 أيام أو فائتة) على جهاز الحاسوب أو الهاتف. تعمل الإشعارات طالما الموقع مفتوحًا في المتصفح (تبويب مفتوح أو مثبّت كتطبيق) — لا تصل إن كان المتصفح مغلقًا تمامًا.</p>
+    <button class="btn btn-gold" onclick="enableNotifications()">${ic('bell')}تفعيل إشعارات المتصفح</button>
   </div>
   <div class="panel">
     <h3><span class="titlewrap">${ic('idcard')}الأمان</span></h3>
@@ -1807,6 +1877,9 @@ function showApp(){
   document.getElementById('authScreen').innerHTML = '';
   document.getElementById('appRoot').style.display = '';
   render();
+  checkBrowserNotifications();
+  clearInterval(window.__notifyTimer);
+  window.__notifyTimer = setInterval(checkBrowserNotifications, 5*60*1000);
 }
 function renderAuthLogin(){
   showAuthScreen(`
